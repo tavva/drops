@@ -5,7 +5,7 @@ import { Upload } from '@aws-sdk/lib-storage';
 import { s3, deletePrefix } from '@/lib/r2';
 import { config } from '@/config';
 import { mimeFor } from '@/lib/mime';
-import { sanitisePath, PathRejection } from '@/lib/path';
+import { sanitisePath } from '@/lib/path';
 import { UploadError } from './uploadErrors';
 
 export const UPLOAD_LIMITS = {
@@ -49,7 +49,6 @@ export async function uploadFolderParts(
       }
       const res = sanitisePath(part.filename);
       if (!res.ok) throw new UploadError('path_rejected', `path rejected: ${res.reason}`);
-      if (res.reason === PathRejection.Empty) throw new UploadError('path_rejected');
       const key = res.path;
       if (seen.has(key)) throw new UploadError('path_collision', `duplicate path: ${key}`);
       seen.add(key);

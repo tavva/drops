@@ -27,7 +27,11 @@ async function drain(r: Readable): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function makeZip(entries: Array<{ name: string; data: Buffer; mode?: number; dir?: boolean }>): Promise<Buffer> {
+type ZipEntry =
+  | { name: string; data: Buffer; mode?: number; dir?: false }
+  | { name: string; dir: true };
+
+function makeZip(entries: ZipEntry[]): Promise<Buffer> {
   const z = new yazl.ZipFile();
   for (const e of entries) {
     if (e.dir) {
