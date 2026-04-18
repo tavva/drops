@@ -1,0 +1,64 @@
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+
+let appInstance: Awaited<ReturnType<typeof import('@/server').buildServer>>;
+
+beforeAll(async () => {
+  const { buildServer } = await import('@/server');
+  const { onAppHost } = await import('@/middleware/host');
+  const { registerCsrf } = await import('@/middleware/csrf');
+  const { dashboardRoute } = await import('@/routes/app/dashboard');
+  appInstance = await buildServer();
+  await appInstance.register(onAppHost(async (s) => {
+    await registerCsrf(s);
+    await s.register(dashboardRoute);
+  }));
+});
+
+afterAll(async () => { await appInstance.close(); });
+
+let userId: string;
+beforeEach(async () => {
+  const { db } = await import('@/db');
+  const { users, drops, sessions } = await import('@/db/schema');
+  await db.delete(drops);
+  await db.delete(sessions);
+  await db.delete(users);
+  const [u] = await db.insert(users).values({ email: 'a@b.com', username: 'alice' }).returning();
+  userId = u!.id;
+});
+
+async function authedCookie() {
+  const { createSession } = await import('@/services/sessions');
+  const { signCookie } = await import('@/lib/cookies');
+  const { config } = await import('@/config');
+  const sid = await createSession(userId);
+  return `drops_session=${signCookie(sid, config.SESSION_SECRET)}`;
+}
+
+describe('GET /app', () => {
+  it('redirects unauthenticated user to login', async () => {
+    const res = await appInstance.inject({ method: 'GET', url: '/app', headers: { host: 'drops.localtest.me' } });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toContain('/auth/login');
+  });
+
+  it('renders empty state', async () => {
+    const res = await appInstance.inject({
+      method: 'GET', url: '/app',
+      headers: { host: 'drops.localtest.me', cookie: await authedCookie() },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('You have no drops yet');
+  });
+
+  it('lists user drops after creation', async () => {
+    const { createDropAndVersion } = await import('@/services/drops');
+    await createDropAndVersion(userId, 'site', { r2Prefix: 'drops/v1/', byteSize: 1, fileCount: 1 });
+    const res = await appInstance.inject({
+      method: 'GET', url: '/app',
+      headers: { host: 'drops.localtest.me', cookie: await authedCookie() },
+    });
+    expect(res.body).toContain('>site<');
+    expect(res.body).toContain('alice/site');
+  });
+});

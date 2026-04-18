@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Drops — <%= user.username %></title>
+  </head>
+  <body>
+    <header>
+      <h1>drops Drops</h1>
+      <p>Signed in as <strong><%= user.username %></strong></p>
+      <form method="post" action="/auth/logout">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button type="submit">Sign out</button>
+      </form>
+      <p><a href="/app/drops/new">New drop</a></p>
+    </header>
+
+    <section>
+      <h2>Your drops</h2>
+      <% if (yourDrops.length === 0) { %>
+        <p>You have no drops yet. <a href="/app/drops/new">Create one</a>.</p>
+      <% } else { %>
+        <ul>
+          <% yourDrops.forEach(function(d) { %>
+            <li>
+              <a href="/app/drops/<%= d.name %>"><%= d.name %></a>
+              — <a href="<%= contentOrigin %>/<%= user.username %>/<%= d.name %>/">view</a>
+              <% if (d.version) { %>
+                (<%= d.version.fileCount %> files, <%= d.version.byteSize %> bytes)
+              <% } %>
+            </li>
+          <% }) %>
+        </ul>
+      <% } %>
+    </section>
+
+    <section>
+      <h2>All drops</h2>
+      <% if (allDrops.length === 0) { %>
+        <p>No drops yet.</p>
+      <% } else { %>
+        <ul>
+          <% allDrops.forEach(function(d) { %>
+            <li>
+              <a href="<%= contentOrigin %>/<%= d.ownerUsername %>/<%= d.name %>/"><%= d.ownerUsername %>/<%= d.name %></a>
+            </li>
+          <% }) %>
+        </ul>
+      <% } %>
+    </section>
+  </body>
+</html>
