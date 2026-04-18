@@ -1,6 +1,6 @@
 // ABOUTME: GET/POST /auth/choose-username — completes signup for a brand-new user.
 // ABOUTME: Consumes the pending_login cookie, creates a user + session, hands off to the content origin.
-import { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { pendingLogins } from '@/db/schema';

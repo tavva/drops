@@ -1,6 +1,6 @@
 // ABOUTME: requireAppSession / requireContentSession preHandlers.
 // ABOUTME: On miss, redirects to the app-host /auth/login with ?next= URL-encoded.
-import { FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionUser, rollIfStale } from '@/services/sessions';
 import { verifyCookie, appCookieOptions, contentCookieOptions } from '@/lib/cookies';
 import { config } from '@/config';

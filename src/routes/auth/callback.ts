@@ -1,6 +1,6 @@
 // ABOUTME: GET /auth/callback — completes OAuth, enforces allowlist, creates session or pending login.
 // ABOUTME: On success, redirects to content-host /auth/bootstrap with a short-lived handoff token.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { exchangeCode } from '@/lib/oauth';
 import { verifyCookie, signCookie, appCookieOptions } from '@/lib/cookies';
 import { signHandoff } from '@/lib/handoff';

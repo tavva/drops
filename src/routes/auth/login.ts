@@ -1,6 +1,6 @@
 // ABOUTME: GET /auth/login — starts the Google OAuth flow by redirecting to the authorize endpoint.
 // ABOUTME: `state` and `nonce` are stashed in a signed `oauth_state` cookie scoped to /auth.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import { buildAuthUrl } from '@/lib/oauth';
 import { signCookie, appCookieOptions } from '@/lib/cookies';

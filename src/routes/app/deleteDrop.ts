@@ -1,5 +1,5 @@
 // ABOUTME: POST /app/drops/:name/delete — removes a drop and fires off R2 prefix cleanup.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { requireAppSession } from '@/middleware/auth';
 import { isValidSlug } from '@/lib/slug';
 import { findByOwnerAndName, listVersionsForDrop, deleteDrop } from '@/services/drops';

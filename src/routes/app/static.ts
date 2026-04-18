@@ -1,5 +1,5 @@
 // ABOUTME: Serves /app/static/* from src/views/static on the app host.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { resolve } from 'node:path';
 

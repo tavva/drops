@@ -1,5 +1,5 @@
 // ABOUTME: GET /health — deep probe of DB and R2 so Railway can detect degraded state.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { sql } from 'drizzle-orm';
 import { HeadBucketCommand } from '@aws-sdk/client-s3';
 import { db } from '@/db';
