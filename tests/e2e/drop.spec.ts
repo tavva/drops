@@ -12,7 +12,7 @@ process.env.R2_BUCKET ??= 'drops-test';
 process.env.GOOGLE_CLIENT_ID ??= 'test';
 process.env.GOOGLE_CLIENT_SECRET ??= 'test';
 process.env.SESSION_SECRET ??= 's'.repeat(64);
-process.env.ALLOWED_DOMAIN ??= 'drops.global';
+process.env.ALLOWED_DOMAIN ??= 'example.com';
 process.env.APP_ORIGIN ??= 'http://drops.localtest.me:3000';
 process.env.CONTENT_ORIGIN ??= 'http://content.localtest.me:3000';
 process.env.PORT ??= '3000';
@@ -28,8 +28,8 @@ test('upload a folder and serve it from the content host', async () => {
   const { users, allowedEmails } = await import('../../src/db/schema');
   await db.delete(users);
   await db.delete(allowedEmails);
-  await db.insert(allowedEmails).values({ email: 'tester@drops.global' });
-  const [u] = await db.insert(users).values({ email: 'tester@drops.global', username: 'tester' }).returning();
+  await db.insert(allowedEmails).values({ email: 'tester@example.com' });
+  const [u] = await db.insert(users).values({ email: 'tester@example.com', username: 'tester' }).returning();
 
   const { createSession } = await import('../../src/services/sessions');
   const { signCookie } = await import('../../src/lib/cookies');

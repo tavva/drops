@@ -13,10 +13,10 @@ describe('isEmailAllowed', () => {
     expect(await isEmailAllowed('friend@outside.com')).toBe(true);
   });
   it('allows an email in the domain', async () => {
-    expect(await isEmailAllowed('anyone@drops.global')).toBe(true);
+    expect(await isEmailAllowed('anyone@example.com')).toBe(true);
   });
   it('rejects neither', async () => {
-    expect(await isEmailAllowed('nope@example.com')).toBe(false);
+    expect(await isEmailAllowed('nope@some-other-domain.test')).toBe(false);
   });
   it('is case-insensitive on email', async () => {
     expect(await isEmailAllowed('FRIEND@outside.com')).toBe(true);

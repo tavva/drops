@@ -29,7 +29,7 @@ async function prepare() {
   await db.delete(sessions);
   await db.delete(users);
   await db.delete(pendingLogins);
-  const id = await createPendingLogin({ email: 'new@drops.global', name: 'New', avatarUrl: null });
+  const id = await createPendingLogin({ email: 'new@example.com', name: 'New', avatarUrl: null });
   return {
     pendingId: id,
     pendingCookie: `pending_login=${signCookie(id, config.SESSION_SECRET)}`,
@@ -81,7 +81,7 @@ describe('GET/POST /auth/choose-username', () => {
     const ctx = await prepare();
     const { db } = await import('@/db');
     const { users } = await import('@/db/schema');
-    await db.insert(users).values({ email: 'other@drops.global', username: 'taken' });
+    await db.insert(users).values({ email: 'other@example.com', username: 'taken' });
     const token = ctx.token();
     const res = await appInstance.inject({
       method: 'POST', url: '/auth/choose-username',

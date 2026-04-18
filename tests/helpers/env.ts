@@ -10,7 +10,7 @@ export const TEST_ENV = {
   GOOGLE_CLIENT_ID: 'test-client-id',
   GOOGLE_CLIENT_SECRET: 'test-client-secret',
   SESSION_SECRET: 's'.repeat(64),
-  ALLOWED_DOMAIN: 'drops.global',
+  ALLOWED_DOMAIN: 'example.com',
   APP_ORIGIN: 'http://drops.localtest.me:3000',
   CONTENT_ORIGIN: 'http://content.localtest.me:3000',
   PORT: '3000',

@@ -25,7 +25,7 @@ describe('cookie options', () => {
     R2_ACCOUNT_ID: 'a', R2_ACCESS_KEY_ID: 'b', R2_SECRET_ACCESS_KEY: 'c', R2_BUCKET: 'd',
     GOOGLE_CLIENT_ID: 'g', GOOGLE_CLIENT_SECRET: 'gs',
     SESSION_SECRET: 'x'.repeat(64),
-    ALLOWED_DOMAIN: 'drops.global',
+    ALLOWED_DOMAIN: 'example.com',
   };
   let saved: NodeJS.ProcessEnv;
   beforeEach(() => {
