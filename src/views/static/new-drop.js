@@ -48,7 +48,20 @@
         return;
       }
     }
-    const collected = (await Promise.all(entries.map((e) => walk(e, '')))).flat();
+    // Unwrap single dropped folder so its contents sit at the drop root.
+    let collected;
+    if (entries.length === 1 && entries[0].isDirectory) {
+      const reader = entries[0].createReader();
+      const children = [];
+      while (true) {
+        const batch = await new Promise((res, rej) => reader.readEntries(res, rej));
+        if (batch.length === 0) break;
+        children.push(...batch);
+      }
+      collected = (await Promise.all(children.map((c) => walk(c, '')))).flat();
+    } else {
+      collected = (await Promise.all(entries.map((e) => walk(e, '')))).flat();
+    }
     if (collected.length === 0) return setErr('No files found.');
     pending = { kind: 'folder', files: collected };
     setProgress(`Ready: ${collected.length} files`);
@@ -59,7 +72,17 @@
     if (files.length === 1 && files[0].name.endsWith('.zip')) {
       pending = { kind: 'zip', file: files[0] };
     } else {
-      pending = { kind: 'folder', files: files.map((f) => ({ relativePath: f.webkitRelativePath || f.name, file: f })) };
+      const entries = files.map((f) => ({ raw: f.webkitRelativePath || f.name, file: f }));
+      // If every file shares the same first path segment, strip it.
+      const firstSeg = entries[0]?.raw.split('/')[0] ?? '';
+      const shareRoot = firstSeg && entries.every((e) => e.raw.split('/')[0] === firstSeg && e.raw.includes('/'));
+      pending = {
+        kind: 'folder',
+        files: entries.map((e) => ({
+          relativePath: shareRoot ? e.raw.split('/').slice(1).join('/') : e.raw,
+          file: e.file,
+        })),
+      };
     }
     setProgress(`Ready: ${files.length} files`);
   });

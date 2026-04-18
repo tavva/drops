@@ -1,5 +1,6 @@
 // ABOUTME: Fastify hooks that issue and validate CSRF tokens on the app host.
-// ABOUTME: Tokens are rotated on every GET render; POST/PUT/PATCH/DELETE must include a matching token.
+// ABOUTME: Tokens are minted when the cookie is missing or no longer valid for the current context;
+// ABOUTME: reusing the existing token keeps static asset GETs from invalidating in-flight form submissions.
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CSRF_COOKIE, CSRF_HEADER, issueCsrfToken, verifyCsrfToken, originMatches } from '@/lib/csrf';
 import { appCookieOptions, verifyCookie } from '@/lib/cookies';
@@ -31,6 +32,11 @@ export async function registerCsrf(app: FastifyInstance) {
     if (req.method !== 'GET') return;
     const ctx = contextId(req);
     if (!ctx) return;
+    const existing = req.cookies[CSRF_COOKIE];
+    if (existing && verifyCsrfToken(ctx, existing)) {
+      req.csrfToken = existing;
+      return;
+    }
     const token = issueCsrfToken(ctx);
     reply.setCookie(CSRF_COOKIE, token, appCookieOptions({ httpOnly: false }));
     req.csrfToken = token;
