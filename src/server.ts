@@ -29,7 +29,10 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   await app.register(cookies, { secret: config.SESSION_SECRET });
   await app.register(formbody);
-  await app.register(multipart, { limits: { fieldNameSize: 200, fieldSize: 1024 } });
+  await app.register(multipart, {
+    preservePath: true,
+    limits: { fieldNameSize: 200, fieldSize: 1024 },
+  });
   await app.register(view, { engine: { ejs }, root: 'src/views' });
 
   app.decorateRequest('hostKind', 'unknown');

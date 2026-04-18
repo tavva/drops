@@ -1,6 +1,6 @@
 // ABOUTME: GET/POST /auth/choose-username — completes signup for a brand-new user.
 // ABOUTME: Consumes the pending_login cookie, creates a user + session, hands off to the content origin.
-import { FastifyPluginAsync } from 'fastify';
+import { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { pendingLogins } from '@/db/schema';
@@ -23,8 +23,8 @@ interface PendingPayload {
   avatarUrl: string | null;
 }
 
-async function loadPending(req: Parameters<FastifyPluginAsync>[0] extends never ? never : Parameters<Parameters<FastifyPluginAsync>[0]['get']>[1] extends never ? never : Parameters<Parameters<FastifyPluginAsync>[0]['get']>[1]): Promise<PendingPayload | null> {
-  const raw = (req as { cookies: Record<string, string> }).cookies[PENDING_LOGIN_COOKIE];
+async function loadPending(req: FastifyRequest): Promise<PendingPayload | null> {
+  const raw = req.cookies[PENDING_LOGIN_COOKIE];
   if (!raw) return null;
   const id = verifyCookie(raw, config.SESSION_SECRET);
   if (!id) return null;
