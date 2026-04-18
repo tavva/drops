@@ -10,7 +10,7 @@ import { createUser, isUsernameTaken, UserConflictError } from '@/services/users
 import { createSession } from '@/services/sessions';
 import { signHandoff } from '@/lib/handoff';
 import { isValidSlug, suggestSlug, RESERVED_USERNAMES } from '@/lib/slug';
-import { issueCsrfToken, verifyCsrfToken, originMatches, CSRF_COOKIE } from '@/lib/csrf';
+import { issueCsrfToken, verifyCsrfToken, requestOriginOk, CSRF_COOKIE } from '@/lib/csrf';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
 import { allowedNext } from './login';
 import { PENDING_LOGIN_COOKIE } from './callback';
@@ -55,8 +55,9 @@ export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
     const pending = await loadPending(req);
     if (!pending) return reply.redirect(new URL('/auth/login', config.APP_ORIGIN).toString(), 302);
 
-    const headerOrigin = (req.headers.origin as string | undefined) ?? (req.headers.referer as string | undefined);
-    if (!originMatches(headerOrigin)) return reply.code(403).send('bad_origin');
+    const origin = req.headers.origin as string | undefined;
+    const referer = req.headers.referer as string | undefined;
+    if (!requestOriginOk(origin, referer)) return reply.code(403).send('bad_origin');
 
     const body = (req.body ?? {}) as Record<string, string | undefined>;
     const cookieCsrf = req.cookies[CSRF_COOKIE] ?? '';

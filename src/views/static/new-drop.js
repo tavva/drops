@@ -44,9 +44,11 @@
       const file = await new Promise((res, rej) => entries[0].file(res, rej));
       if (file.name.endsWith('.zip')) {
         pending = { kind: 'zip', file };
-        setProgress(`Ready: ${file.name}`);
-        return;
+      } else {
+        pending = { kind: 'folder', files: [{ relativePath: file.name, file }] };
       }
+      setProgress(`Ready: ${file.name}`);
+      return;
     }
     // Unwrap single dropped folder so its contents sit at the drop root.
     let collected;
