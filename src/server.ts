@@ -45,7 +45,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     else req.hostKind = 'unknown';
   });
 
-  app.get('/health', async () => ({ ok: true }));
+  const { healthRoute } = await import('@/routes/health');
+  await app.register(healthRoute);
 
   return app;
 }
