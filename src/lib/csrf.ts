@@ -25,10 +25,14 @@ export function verifyCsrfToken(contextId: string, token: string): boolean {
 }
 
 export function originMatches(header: string | undefined): boolean {
-  if (!header) return false;
+  if (!header || header === 'null') return false;
   try {
     const a = new URL(header);
     const b = new URL(config.APP_ORIGIN);
     return a.protocol === b.protocol && a.host === b.host;
   } catch { return false; }
+}
+
+export function requestOriginOk(origin: string | undefined, referer: string | undefined): boolean {
+  return originMatches(origin) || originMatches(referer);
 }

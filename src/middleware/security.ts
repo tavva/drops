@@ -28,6 +28,7 @@ export async function registerAppSecurity(app: FastifyInstance) {
     },
     crossOriginEmbedderPolicy: false,
     crossOriginResourcePolicy: { policy: 'same-origin' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
     frameguard: { action: 'deny' },
     hsts: https ? { maxAge: 31_536_000, includeSubDomains: true } : false,
   });

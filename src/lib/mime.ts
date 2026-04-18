@@ -20,6 +20,8 @@ const MAP: Record<string, string> = {
   ttf: 'font/ttf',
   otf: 'font/otf',
   txt: 'text/plain; charset=utf-8',
+  md: 'text/markdown; charset=utf-8',
+  markdown: 'text/markdown; charset=utf-8',
   xml: 'application/xml',
   pdf: 'application/pdf',
   mp4: 'video/mp4',

@@ -42,7 +42,8 @@ export const contentServeRoute: FastifyPluginAsync = async (app) => {
       const prefix = drop.version.r2Prefix;
 
       let rest = splat;
-      if (rest === '' || rest.endsWith('/')) rest += 'index.html';
+      const bareRoot = rest === '' || rest.endsWith('/');
+      if (bareRoot) rest += 'index.html';
       const result = sanitisePath(rest);
       if (!result.ok) return reply.code(404).send('not_found');
       const sanitised = result.path;
@@ -50,6 +51,13 @@ export const contentServeRoute: FastifyPluginAsync = async (app) => {
       let found = await getObject(prefix + sanitised);
       if (!found && !sanitised.endsWith('.html') && !sanitised.endsWith('/')) {
         found = await getObject(prefix + sanitised + '/index.html');
+      }
+      if (!found && bareRoot && drop.version.fileCount === 1) {
+        const { listPrefix } = await import('@/lib/r2');
+        const keys = await listPrefix(prefix);
+        if (keys.length === 1 && keys[0]) {
+          found = await getObject(keys[0]);
+        }
       }
       if (!found) return reply.code(404).send('not_found');
 

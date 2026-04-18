@@ -101,6 +101,29 @@ describe('content serve', () => {
     expect(res.statusCode).toBe(404);
   });
 
+  it('serves the sole file in a drop when / is requested and there is no index.html', async () => {
+    await makeDrop('notes', [{ path: 'note.md', body: Buffer.from('# hi\n'), contentType: 'text/markdown; charset=utf-8' }]);
+    const res = await appInstance.inject({
+      method: 'GET', url: '/alice/notes/',
+      headers: { host: 'content.localtest.me', cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('# hi');
+    expect(res.headers['content-type']).toContain('markdown');
+  });
+
+  it('does NOT fall back to the sole file when the drop has multiple files', async () => {
+    await makeDrop('multi', [
+      { path: 'a.md', body: Buffer.from('a') },
+      { path: 'b.md', body: Buffer.from('b') },
+    ]);
+    const res = await appInstance.inject({
+      method: 'GET', url: '/alice/multi/',
+      headers: { host: 'content.localtest.me', cookie },
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
   it('returns 304 when If-None-Match matches', async () => {
     await makeDrop('site', [{ path: 'index.html', body: Buffer.from('hi') }]);
     const first = await appInstance.inject({

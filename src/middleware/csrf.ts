@@ -2,7 +2,7 @@
 // ABOUTME: Tokens are minted when the cookie is missing or no longer valid for the current context;
 // ABOUTME: reusing the existing token keeps static asset GETs from invalidating in-flight form submissions.
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { CSRF_COOKIE, CSRF_HEADER, issueCsrfToken, verifyCsrfToken, originMatches } from '@/lib/csrf';
+import { CSRF_COOKIE, CSRF_HEADER, issueCsrfToken, verifyCsrfToken, requestOriginOk } from '@/lib/csrf';
 import { appCookieOptions, verifyCookie } from '@/lib/cookies';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
 import { config } from '@/config';
@@ -46,9 +46,9 @@ export async function registerCsrf(app: FastifyInstance) {
     if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return;
     if (req.routeOptions.config?.skipCsrf) return;
 
-    const headerOrigin = (req.headers.origin as string | undefined)
-      ?? (req.headers.referer as string | undefined);
-    if (!originMatches(headerOrigin)) return badOrigin(reply);
+    const origin = req.headers.origin as string | undefined;
+    const referer = req.headers.referer as string | undefined;
+    if (!requestOriginOk(origin, referer)) return badOrigin(reply);
 
     const cookie = req.cookies[CSRF_COOKIE] ?? '';
     const submitted = (req.headers[CSRF_HEADER] as string | undefined)
