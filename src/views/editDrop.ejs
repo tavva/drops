@@ -16,8 +16,11 @@
     <h2>Replace contents</h2>
     <form id="new-drop-form" data-csrf="<%= csrfToken %>" data-fixed-name="<%= drop.name %>">
       <div id="drop-zone">
-        <p>Drag a folder or a .zip file here.</p>
-        <input type="file" id="drop-input" multiple webkitdirectory>
+        <p>Drag a folder, a .zip, or any file here — or pick below.</p>
+        <p>
+          <input type="file" id="drop-files" multiple>
+          <input type="file" id="drop-folder" multiple webkitdirectory>
+        </p>
       </div>
       <button type="submit">Upload new version</button>
     </form>
