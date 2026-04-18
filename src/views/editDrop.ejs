@@ -17,9 +17,9 @@
     <form id="new-drop-form" data-csrf="<%= csrfToken %>" data-fixed-name="<%= drop.name %>">
       <div id="drop-zone">
         <p>Drag a folder, a .zip, or any file here — or pick below.</p>
-        <p>
-          <input type="file" id="drop-files" multiple>
-          <input type="file" id="drop-folder" multiple webkitdirectory>
+        <p class="pickers">
+          <label class="picker"><strong>Files:</strong> <input type="file" id="drop-files" multiple></label>
+          <label class="picker"><strong>Folder:</strong> <input type="file" id="drop-folder" multiple webkitdirectory></label>
         </p>
       </div>
       <button type="submit">Upload new version</button>
