@@ -1,0 +1,94 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { db } from '@/db';
+import { drops, dropVersions, users } from '@/db/schema';
+import {
+  createDropAndVersion,
+  replaceVersion,
+  findByOwnerAndName,
+  listByOwner,
+  listAll,
+  deleteDrop,
+  DropConflictError,
+} from '@/services/drops';
+
+let ownerA: string;
+let ownerB: string;
+
+beforeEach(async () => {
+  await db.delete(drops);
+  await db.delete(users);
+  const [a] = await db.insert(users).values({ email: 'a@x.com', username: 'alice' }).returning();
+  const [b] = await db.insert(users).values({ email: 'b@x.com', username: 'bob' }).returning();
+  ownerA = a!.id; ownerB = b!.id;
+});
+
+describe('drops service', () => {
+  it('creates a drop and its first version', async () => {
+    const { dropId, versionId } = await createDropAndVersion(ownerA, 'site', {
+      r2Prefix: `drops/v1/`, byteSize: 123, fileCount: 2,
+    });
+    const row = await findByOwnerAndName(ownerA, 'site');
+    expect(row?.id).toBe(dropId);
+    expect(row?.currentVersion).toBe(versionId);
+    expect(row?.version?.byteSize).toBe(123);
+  });
+
+  it('lets different owners use the same drop name', async () => {
+    await createDropAndVersion(ownerA, 'site', { r2Prefix: 'drops/x/', byteSize: 1, fileCount: 1 });
+    await createDropAndVersion(ownerB, 'site', { r2Prefix: 'drops/y/', byteSize: 1, fileCount: 1 });
+    expect((await findByOwnerAndName(ownerA, 'site'))?.ownerId).toBe(ownerA);
+    expect((await findByOwnerAndName(ownerB, 'site'))?.ownerId).toBe(ownerB);
+  });
+
+  it('rejects duplicate name for same owner', async () => {
+    await createDropAndVersion(ownerA, 'site', { r2Prefix: 'drops/a/', byteSize: 1, fileCount: 1 });
+    await expect(createDropAndVersion(ownerA, 'site', { r2Prefix: 'drops/b/', byteSize: 1, fileCount: 1 }))
+      .rejects.toBeInstanceOf(DropConflictError);
+  });
+
+  it('replaces version atomically and returns previous version id', async () => {
+    const first = await createDropAndVersion(ownerA, 'site', { r2Prefix: 'drops/v1/', byteSize: 1, fileCount: 1 });
+    const { oldVersionId, newVersionId } = await replaceVersion(first.dropId, ownerA, {
+      r2Prefix: 'drops/v2/', byteSize: 2, fileCount: 2,
+    });
+    expect(oldVersionId).toBe(first.versionId);
+    const row = await findByOwnerAndName(ownerA, 'site');
+    expect(row?.currentVersion).toBe(newVersionId);
+    expect(row?.version?.byteSize).toBe(2);
+  });
+
+  it('replaceVersion with wrong owner throws', async () => {
+    const first = await createDropAndVersion(ownerA, 'site', { r2Prefix: 'drops/x/', byteSize: 1, fileCount: 1 });
+    await expect(replaceVersion(first.dropId, ownerB, {
+      r2Prefix: 'drops/y/', byteSize: 1, fileCount: 1,
+    })).rejects.toThrow(/not found/);
+  });
+
+  it('listByOwner includes version info', async () => {
+    await createDropAndVersion(ownerA, 'one', { r2Prefix: 'drops/o/', byteSize: 10, fileCount: 1 });
+    await createDropAndVersion(ownerA, 'two', { r2Prefix: 'drops/t/', byteSize: 20, fileCount: 2 });
+    const list = await listByOwner(ownerA);
+    expect(list.map((d) => d.name).sort()).toEqual(['one', 'two']);
+    expect(list.every((d) => d.version !== null)).toBe(true);
+  });
+
+  it('listAll joins owner username', async () => {
+    await createDropAndVersion(ownerA, 'a-site', { r2Prefix: 'drops/a/', byteSize: 1, fileCount: 1 });
+    await createDropAndVersion(ownerB, 'b-site', { r2Prefix: 'drops/b/', byteSize: 1, fileCount: 1 });
+    const list = await listAll(25, 0);
+    const usernames = new Set(list.map((d) => d.ownerUsername));
+    expect(usernames.has('alice')).toBe(true);
+    expect(usernames.has('bob')).toBe(true);
+  });
+
+  it('deleteDrop removes the drop and cascades versions; rejects wrong owner', async () => {
+    const { dropId } = await createDropAndVersion(ownerA, 'site', {
+      r2Prefix: 'drops/v1/', byteSize: 1, fileCount: 1,
+    });
+    expect(await deleteDrop(dropId, ownerB)).toBe(false);
+    expect(await deleteDrop(dropId, ownerA)).toBe(true);
+    expect(await findByOwnerAndName(ownerA, 'site')).toBeNull();
+    const versions = await db.select().from(dropVersions);
+    expect(versions.length).toBe(0);
+  });
+});
