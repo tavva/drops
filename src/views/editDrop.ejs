@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Edit drop — <%= drop.name %></title>
+    <script src="/app/static/new-drop.js" defer></script>
+  </head>
+  <body>
+    <h1>Drop: <%= drop.name %></h1>
+    <p><a href="<%= contentUrl %>">View at <%= contentUrl %></a></p>
+    <% if (drop.version) { %>
+      <p>Current version: <%= drop.version.fileCount %> files, <%= drop.version.byteSize %> bytes.</p>
+    <% } %>
+
+    <h2>Replace contents</h2>
+    <form id="new-drop-form" data-csrf="<%= csrfToken %>" data-fixed-name="<%= drop.name %>">
+      <div id="drop-zone">
+        <p>Drag a folder or a .zip file here.</p>
+        <input type="file" id="drop-input" multiple webkitdirectory>
+      </div>
+      <button type="submit">Upload new version</button>
+    </form>
+
+    <h2>Delete drop</h2>
+    <form method="post" action="/app/drops/<%= drop.name %>/delete">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button type="submit">Delete</button>
+    </form>
+
+    <p><a href="/app">Back to dashboard</a></p>
+  </body>
+</html>
