@@ -38,6 +38,7 @@
     "@aws-sdk/lib-storage": "^3.1032.0",
     "@fastify/cookie": "^11.0.2",
     "@fastify/formbody": "^8.0.2",
+    "@fastify/helmet": "^13.0.2",
     "@fastify/multipart": "^10.0.0",
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/static": "^9.1.1",
