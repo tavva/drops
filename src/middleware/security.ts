@@ -1,7 +1,7 @@
 // ABOUTME: Registers @fastify/helmet with host-appropriate CSP settings.
 // ABOUTME: App host gets a strict same-origin CSP; content host disables CSP/frameguard (user-controlled HTML).
 import helmet from '@fastify/helmet';
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 
 export async function registerAppSecurity(app: FastifyInstance) {
   await app.register(helmet, {

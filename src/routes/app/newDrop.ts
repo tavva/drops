@@ -1,5 +1,5 @@
 // ABOUTME: GET /app/drops/new — renders the form for creating a new drop.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { requireAppSession } from '@/middleware/auth';
 
 export const newDropRoute: FastifyPluginAsync = async (app) => {

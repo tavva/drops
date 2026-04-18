@@ -1,6 +1,6 @@
 // ABOUTME: Fastify hooks that issue and validate CSRF tokens on the app host.
 // ABOUTME: Tokens are rotated on every GET render; POST/PUT/PATCH/DELETE must include a matching token.
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CSRF_COOKIE, CSRF_HEADER, issueCsrfToken, verifyCsrfToken, originMatches } from '@/lib/csrf';
 import { appCookieOptions, verifyCookie } from '@/lib/cookies';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';

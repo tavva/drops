@@ -1,6 +1,6 @@
 // ABOUTME: Content-host GET /auth/bootstrap — consumes a handoff token, sets the content session cookie,
 // ABOUTME: and redirects to a validated `next` URL on either the app or content origin.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { verifyHandoff } from '@/lib/handoff';
 import { getSessionUser } from '@/services/sessions';
 import { signCookie, contentCookieOptions } from '@/lib/cookies';

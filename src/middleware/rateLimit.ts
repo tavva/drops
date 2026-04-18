@@ -1,7 +1,7 @@
 // ABOUTME: Registers @fastify/rate-limit at a baseline ceiling with tighter per-route overrides.
 // ABOUTME: `rateLimit: false` on a route opts it out; auth and upload routes get their own keyed limits.
 import rateLimit from '@fastify/rate-limit';
-import { FastifyInstance } from 'fastify';
+import type { FastifyInstance } from 'fastify';
 
 export async function registerRateLimit(app: FastifyInstance) {
   await app.register(rateLimit, {

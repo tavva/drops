@@ -1,6 +1,6 @@
 // ABOUTME: POST /app/drops/:name/upload — receives folder or zip multipart bodies, commits atomically.
 // ABOUTME: Uploads write to a unique drops/<versionId>/ prefix; commit is an ON CONFLICT + FOR UPDATE swap.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { db } from '@/db';

@@ -1,6 +1,6 @@
 // ABOUTME: App-host POST /auth/logout — deletes session, clears cookie, hops to content host for its cookie.
 // ABOUTME: Plus a GET /auth/goodbye that renders a simple goodbye page.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { deleteSession } from '@/services/sessions';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
 import { appCookieOptions, verifyCookie } from '@/lib/cookies';

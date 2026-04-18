@@ -1,6 +1,6 @@
 // ABOUTME: GET /:username/:dropname/* — streams R2 content after authenticating the content session.
 // ABOUTME: Applies path sanitisation, directory→index.html fallback, and ETag-based 304 handling.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { requireContentSession } from '@/middleware/auth';
 import { findByUsername } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';

@@ -1,5 +1,5 @@
 // ABOUTME: GET /app dashboard page — shows the current user's drops and the global feed.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { requireAppSession } from '@/middleware/auth';
 import { listByOwner, listAll } from '@/services/drops';
 import { config } from '@/config';

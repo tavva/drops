@@ -1,5 +1,5 @@
 // ABOUTME: Content-host GET /auth/logout — clears the content session cookie and bounces back to app host.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { CONTENT_SESSION_COOKIE } from '@/middleware/auth';
 import { contentCookieOptions } from '@/lib/cookies';
 import { allowedNext } from './login';

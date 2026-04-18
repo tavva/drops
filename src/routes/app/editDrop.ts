@@ -1,5 +1,5 @@
 // ABOUTME: GET /app/drops/:name — renders the edit page for a drop the caller owns.
-import { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import { requireAppSession } from '@/middleware/auth';
 import { findByOwnerAndName } from '@/services/drops';
 import { isValidSlug } from '@/lib/slug';
