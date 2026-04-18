@@ -9,7 +9,7 @@ export default defineConfig({
     testTimeout: 15_000,
     hookTimeout: 30_000,
     pool: 'forks',
-    forks: { singleFork: true },
+    fileParallelism: false,
   },
   resolve: {
     alias: { '@': new URL('./src/', import.meta.url).pathname },

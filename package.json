@@ -37,6 +37,7 @@
     "@aws-sdk/lib-storage": "^3.1032.0",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.8.5",
+    "openid-client": "^6.8.3",
     "pino": "^10.3.1",
     "postgres": "^3.4.9",
     "yauzl": "^3.3.0",
