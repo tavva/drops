@@ -16,7 +16,7 @@ describe('isEmailAllowed', () => {
     expect(await isEmailAllowed('anyone@example.com')).toBe(true);
   });
   it('rejects neither', async () => {
-    expect(await isEmailAllowed('nope@example.com')).toBe(false);
+    expect(await isEmailAllowed('nope@some-other-domain.test')).toBe(false);
   });
   it('is case-insensitive on email', async () => {
     expect(await isEmailAllowed('FRIEND@outside.com')).toBe(true);

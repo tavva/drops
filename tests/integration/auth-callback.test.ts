@@ -63,7 +63,7 @@ describe('GET /auth/callback', () => {
 
   it('rejects non-allowlisted email', async () => {
     exchangeCodeMock.mockResolvedValueOnce({
-      email: 'nobody@example.com',
+      email: 'nobody@some-other-domain.test',
       emailVerified: true,
       name: null, avatarUrl: null,
     });
