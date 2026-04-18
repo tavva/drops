@@ -75,7 +75,9 @@ pnpm typecheck
 
 ## Multiple instances
 
-Each instance gets its own Railway project + Postgres + R2 bucket + Google OAuth client + DNS pair. The code doesn't change between instances — only env vars. Rough costs scale linearly with the number of instances.
+Each instance gets its own Railway project + Postgres + R2 bucket + DNS pair. The code doesn't change between instances — only env vars. Rough costs scale linearly with the number of instances.
+
+A single Google OAuth Web client can be shared across instances: add one redirect URI per deployment (e.g. `https://drops.example.com/auth/callback`, `https://drops.other.com/auth/callback`). The same `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` values go on every instance. Tradeoff: the secret's blast radius now covers every instance, so if one deployment leaks its env, rotate the shared client.
 
 ## Security notes
 
