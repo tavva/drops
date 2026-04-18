@@ -8,7 +8,7 @@ describe('server boot', () => {
   it('answers /health on app host', async () => {
     const res = await app.inject({ method: 'GET', url: '/health', headers: { host: 'drops.localtest.me' } });
     expect(res.statusCode).toBe(200);
-    expect(res.json()).toEqual({ ok: true });
+    expect(res.json()).toEqual({ db: 'ok', r2: 'ok' });
   });
 
   it('tags hostKind based on Host header', async () => {
