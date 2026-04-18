@@ -17,9 +17,16 @@ declare module 'fastify' {
   }
 }
 
-export async function buildServer(): Promise<FastifyInstance> {
+export interface BuildOptions {
+  loggerStream?: NodeJS.WritableStream;
+}
+
+export async function buildServer(opts: BuildOptions = {}): Promise<FastifyInstance> {
+  const logger = opts.loggerStream
+    ? { level: 'info' as const, stream: opts.loggerStream }
+    : { level: config.LOG_LEVEL === 'silent' ? 'silent' : config.LOG_LEVEL };
   const app = Fastify({
-    logger: { level: config.LOG_LEVEL === 'silent' ? 'silent' : config.LOG_LEVEL },
+    logger,
     trustProxy: true,
     bodyLimit: 110 * 1024 * 1024,
     genReqId: () => randomUUID(),

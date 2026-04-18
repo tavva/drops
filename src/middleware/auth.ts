@@ -56,6 +56,7 @@ export async function requireAppSession(req: FastifyRequest, reply: FastifyReply
   await rollIfStale(found.id);
   req.session = { id: found.id };
   req.user = found.user;
+  req.log = req.log.child({ user_id: found.user.id });
 }
 
 export async function requireContentSession(req: FastifyRequest, reply: FastifyReply) {
@@ -67,4 +68,5 @@ export async function requireContentSession(req: FastifyRequest, reply: FastifyR
   await rollIfStale(found.id);
   req.session = { id: found.id };
   req.user = found.user;
+  req.log = req.log.child({ user_id: found.user.id });
 }
