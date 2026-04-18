@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>New drop</title>
+    <script src="/app/static/new-drop.js" defer></script>
+  </head>
+  <body>
+    <h1>New drop</h1>
+    <form id="new-drop-form" data-csrf="<%= csrfToken %>">
+      <label>Name <input name="name" id="drop-name" pattern="^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" required></label>
+      <div id="drop-zone">
+        <p>Drag a folder or a .zip file here.</p>
+        <input type="file" id="drop-input" multiple webkitdirectory>
+      </div>
+      <p id="progress"></p>
+      <p id="error" class="error"></p>
+      <button type="submit">Upload</button>
+    </form>
+    <p><a href="/app">Back to dashboard</a></p>
+  </body>
+</html>
