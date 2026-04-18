@@ -4,7 +4,8 @@
   const form = document.getElementById('new-drop-form');
   if (!form) return;
   const zone = document.getElementById('drop-zone');
-  const fileInput = document.getElementById('drop-input');
+  const filesInput = document.getElementById('drop-files');
+  const folderInput = document.getElementById('drop-folder');
   const progressEl = document.getElementById('progress');
   const errorEl = document.getElementById('error');
   const nameInput = document.getElementById('drop-name');
@@ -69,13 +70,13 @@
     setProgress(`Ready: ${collected.length} files`);
   });
 
-  fileInput.addEventListener('change', () => {
-    const files = [...fileInput.files];
+  function handlePickedFiles(input) {
+    const files = [...input.files];
+    if (files.length === 0) return;
     if (files.length === 1 && files[0].name.endsWith('.zip')) {
       pending = { kind: 'zip', file: files[0] };
     } else {
       const entries = files.map((f) => ({ raw: f.webkitRelativePath || f.name, file: f }));
-      // If every file shares the same first path segment, strip it.
       const firstSeg = entries[0]?.raw.split('/')[0] ?? '';
       const shareRoot = firstSeg && entries.every((e) => e.raw.split('/')[0] === firstSeg && e.raw.includes('/'));
       pending = {
@@ -86,8 +87,11 @@
         })),
       };
     }
-    setProgress(`Ready: ${files.length} files`);
-  });
+    setProgress(`Ready: ${files.length} file${files.length === 1 ? '' : 's'}`);
+  }
+
+  filesInput?.addEventListener('change', () => handlePickedFiles(filesInput));
+  folderInput?.addEventListener('change', () => handlePickedFiles(folderInput));
 
   form.addEventListener('submit', (e) => {
     e.preventDefault();
