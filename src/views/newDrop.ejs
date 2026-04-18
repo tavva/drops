@@ -12,9 +12,9 @@
       <label>Name <input name="name" id="drop-name" pattern="^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" required></label>
       <div id="drop-zone">
         <p>Drag a folder, a .zip, or any file here — or pick below.</p>
-        <p>
-          <input type="file" id="drop-files" multiple>
-          <input type="file" id="drop-folder" multiple webkitdirectory>
+        <p class="pickers">
+          <label class="picker"><strong>Files:</strong> <input type="file" id="drop-files" multiple></label>
+          <label class="picker"><strong>Folder:</strong> <input type="file" id="drop-folder" multiple webkitdirectory></label>
         </p>
       </div>
       <p id="progress"></p>
