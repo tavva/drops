@@ -35,7 +35,13 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1032.0",
     "@aws-sdk/lib-storage": "^3.1032.0",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/formbody": "^8.0.2",
+    "@fastify/multipart": "^10.0.0",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/view": "^11.1.1",
     "drizzle-orm": "^0.45.2",
+    "ejs": "^5.0.2",
     "fastify": "^5.8.5",
     "openid-client": "^6.8.3",
     "pino": "^10.3.1",
