@@ -226,13 +226,13 @@ On miss or expiry:
 
 There is a single upload endpoint for both creating and updating a drop:
 
-- `POST /app/drops/:name/upload`
+- `POST /app/drops/:name/upload?upload_type=folder|zip`
 
-If `:name` does not exist for the current user, the endpoint creates the drop as part of the same request. If it exists, the endpoint requires the current user to own it.
+If `:name` does not exist for the current user, the endpoint creates the drop as part of the same request. If it exists, the endpoint requires the current user to own it. `upload_type` is a query parameter (not a form field) so the server can choose per-request multipart limits before parsing the body.
 
-Both endpoints accept `multipart/form-data` with a form field `upload_type=folder|zip`.
+The body is `multipart/form-data` containing the uploaded files.
 
-The separate `GET /app/drops/new` page is a UI-only form — it collects the desired drop name plus the file/folder/zip and POSTs directly to `/app/drops/:name/upload`. No empty drop row is ever created upfront.
+The separate `GET /app/drops/new` page is a UI-only form — it collects the desired drop name plus the file/folder/zip and POSTs directly to `/app/drops/:name/upload?upload_type=…`. No empty drop row is ever created upfront.
 
 ### Client — folder
 
@@ -253,7 +253,7 @@ The separate `GET /app/drops/new` page is a UI-only form — it collects the des
    - If `drops` row exists with `owner_id = current user`, this is an update.
    - If `drops` row exists with a different owner, return 403.
    - If no row exists, this is a create. **Do not insert the `drops` row yet** — defer until after R2 success (step 7).
-3. Allocate `new_drop_id = uuid()` (only if creating) and `version_id = uuid()`. Compute `r2_prefix = drops/<drop_id>/<version_id>/`.
+3. Allocate `version_id = uuid()`. Compute `r2_prefix = drops/<version_id>/`. Version ids are globally unique; the prefix is keyed on the version alone so the R2 write can start before the `drops.id` is known (useful for the concurrent-create race — see Serving / Concurrency).
 4. **Server-side path sanitisation (applies to both folder and zip paths):**
    - Decode, normalise (`NFC`), strip any leading `/`, collapse `./`, reject any `..` segment.
    - Reject absolute Windows paths (drive letters, leading `\`).
@@ -271,10 +271,10 @@ The separate `GET /app/drops/new` page is a UI-only form — it collects the des
    - Single-root unwrap: before upload, scan sanitised entries. If all share a common top-level directory (e.g. `my-site/...`), strip that prefix. Matches how `zip -r my-site.zip my-site/` works by convention.
    - Stream the entry to R2 at `${r2_prefix}${cleanedPath}`.
 7. If any write fails at any point, delete every object written so far under `r2_prefix` and return an error. No DB rows are touched. An existing drop continues to serve the old version; a failed first upload leaves no drop row behind.
-8. On success, in a single transaction:
-   - If creating: `INSERT INTO drops (id, owner_id, name) VALUES (new_drop_id, user.id, name)`.
-   - Insert the `drop_versions` row keyed on the drop id.
-   - Capture `old_version_id = drops.current_version` (NULL for a create).
+8. On success, in a single transaction (last-commit-wins model, no locks held across the upload):
+   - `INSERT INTO drops (owner_id, name) VALUES (user.id, name) ON CONFLICT (owner_id, name) DO NOTHING` followed by a `SELECT id, current_version FROM drops WHERE owner_id = user.id AND name = name`. The resulting `drop_id` is either our new row's or the one another concurrent upload won the race to create.
+   - `SELECT id, current_version FROM drops WHERE id = drop_id FOR UPDATE` — serialises concurrent version swaps on the same drop and captures `old_version_id`.
+   - Insert the `drop_versions` row keyed on `drop_id`.
    - `UPDATE drops SET current_version = version_id, updated_at = now() WHERE id = drop_id`.
 9. Post-commit, if `old_version_id IS NOT NULL`, enqueue garbage collection: list R2 objects under the old prefix, delete them, then delete the old `drop_versions` row. A nightly sweep retries any version row not referenced as a `current_version` on any drop.
 
