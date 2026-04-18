@@ -1,0 +1,7 @@
+body { font-family: system-ui, sans-serif; margin: 2rem auto; max-width: 48rem; color: #222; }
+a { color: #06b; }
+#drop-zone { border: 2px dashed #888; border-radius: 0.5rem; padding: 2rem; text-align: center; margin: 1rem 0; }
+.error { color: #b30; }
+button { padding: 0.5rem 1rem; font-size: 1rem; }
+input[type=text], input[type=email], input[name=username] { padding: 0.4rem; font-size: 1rem; }
+ul { line-height: 1.8; }
