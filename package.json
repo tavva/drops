@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
+    "db:migrate": "tsx --env-file-if-exists=.env src/db/migrate.ts",
     "dev:seed": "tsx --env-file=.env scripts/dev-seed.ts",
     "dev:init-bucket": "tsx --env-file=.env scripts/dev-init-bucket.ts"
   },
