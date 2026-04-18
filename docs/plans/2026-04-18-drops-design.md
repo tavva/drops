@@ -5,7 +5,9 @@
 
 ## Summary
 
-A private static-site host. Authenticated users drag a folder (or a zip) into the browser and get a live URL at `drops.drops.global/:username/:dropname/`. Think Netlify Drop, but gated by Google OAuth and confined to a small group.
+A private static-site host. Authenticated users drag a folder (or a zip) into the browser and get a live URL at `content.drops.drops.global/:username/:dropname/`. Think Netlify Drop, but gated by Google OAuth and confined to a small group.
+
+The app (dashboard, uploads, OAuth) lives on one origin; served drop content lives on a different origin. This separation prevents a malicious drop's JavaScript from reaching into the app under the same origin.
 
 ## Goals & Non-Goals
 
@@ -24,18 +26,19 @@ A private static-site host. Authenticated users drag a folder (or a zip) into th
 
 ## Architecture
 
-One Fastify service on Railway, one Postgres instance (Railway add-on), one Cloudflare R2 bucket.
+One Fastify service on Railway, one Postgres instance (Railway add-on), one Cloudflare R2 bucket. The service listens on two hostnames and routes by `Host` header.
 
 ```
+          app origin                             content origin
+    drops.drops.global                content.drops.drops.global
+             │                                         │
+             ▼                                         ▼
              ┌─────────────────────────────────────┐
-             │  drops.drops.global  (Railway)  │
-             │  ┌──────────────────────────────┐   │
-  browser ──►│  │   Fastify + TypeScript       │   │
-             │  │   - auth middleware          │   │
-             │  │   - OAuth routes             │   │
-             │  │   - upload handler           │   │
-             │  │   - file-serving handler     │   │
-             │  └──────────────────────────────┘   │
+             │              Fastify                │
+             │  app host:                          │
+             │    /auth/*, /app/*, /health         │
+             │  content host:                      │
+             │    /:username/:dropname/*           │
              └────┬──────────────────┬─────────────┘
                   │                  │
                   ▼                  ▼
@@ -45,11 +48,31 @@ One Fastify service on Railway, one Postgres instance (Railway add-on), one Clou
            └──────────────┘   └──────────────┘
 ```
 
-Route namespaces (order matters — `/app` and `/auth` win over the catch-all):
+### Route namespaces
 
-- `/auth/*` — OAuth callback, logout, choose-username.
-- `/app/*` — dashboard, drop list, create, upload, delete.
-- `/:username/:dropname/*` — serves drop files, auth-gated.
+App host (`drops.drops.global`):
+- `/auth/*` — OAuth start/callback, choose-username, logout.
+- `/app/*` — dashboard, create, upload, delete, edit.
+- `/health` — unauthenticated health check (exempt from auth middleware).
+
+Content host (`content.drops.drops.global`):
+- `/auth/bootstrap` — sets the content-host session cookie after app-host login.
+- `/auth/logout` — clears the content-host session cookie (called as part of the app-host logout chain).
+- `/:username/:dropname/*` — serves drop files, auth-gated by the content-host cookie.
+
+A request hitting the wrong host for its path returns 404 (no cross-host route resolution).
+
+### Why two origins
+
+A drop is arbitrary user HTML and JavaScript. If served on the same origin as `/app`, a malicious (or merely careless) drop's JavaScript has same-origin access to `/app` — reading pages, calling APIs with full credentials, defeating every CSRF and session protection we add. Separating origins shuts that path down.
+
+Note: `drops.drops.global` and `content.drops.drops.global` are the *same site* (same registrable domain), so `SameSite=Lax` alone does not prevent a cross-origin credentialed request between them. The real protections, layered:
+
+- **Separate origins → no same-origin DOM access.** Drop JavaScript on the content origin cannot read, navigate, or script into pages on the app origin. No `document.cookie`, no DOM introspection, no access to app-origin `localStorage`.
+- **CORS blocks reading responses.** A `fetch()` from the content origin to the app origin will have cookies attached (same-site, host-only), but the browser blocks the drop JavaScript from reading the response body unless we return permissive CORS headers — and we do not.
+- **CSRF defences block writes.** All state-changing routes on the app origin require an `Origin`/`Referer` match against `APP_ORIGIN` and a double-submit token bound to the session. A drop-origin `fetch()` fails both checks.
+- **Cookie scoping.** Both session cookies are host-only (no `Domain` attribute). `drops_session` goes only to `drops.drops.global`; `drops_content_session` goes only to `content.drops.drops.global`.
+- All cookies are `HttpOnly; Secure; SameSite=Lax`.
 
 ### Environment variables
 
@@ -60,7 +83,8 @@ Route namespaces (order matters — `/app` and `/auth` win over the catch-all):
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | OAuth credentials |
 | `SESSION_SECRET` | Cookie/CSRF HMAC key |
 | `ALLOWED_DOMAIN` | Email domain auto-granted access (`drops.global`) |
-| `BASE_URL` | Canonical origin (`https://drops.drops.global`) |
+| `APP_ORIGIN` | `https://drops.drops.global` |
+| `CONTENT_ORIGIN` | `https://content.drops.drops.global` |
 
 The per-email allowlist lives in the database, not in an env var (see schema below).
 
@@ -91,6 +115,17 @@ CREATE TABLE sessions (
   expires_at  TIMESTAMPTZ NOT NULL
 );
 
+-- Pending OAuth logins whose identity is verified but still need a username.
+-- Short-lived; expires in 10 minutes. Referenced by a signed cookie.
+CREATE TABLE pending_logins (
+  id           TEXT PRIMARY KEY,
+  email        TEXT NOT NULL,
+  name         TEXT,
+  avatar_url   TEXT,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at   TIMESTAMPTZ NOT NULL
+);
+
 -- Drops. One row per (owner, drop name).
 CREATE TABLE drops (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -103,18 +138,22 @@ CREATE TABLE drops (
 );
 
 -- Drop versions. One row per upload. Immutable. Points at an R2 prefix.
+-- Composite unique (id, drop_id) lets drops reference a version *of itself*.
 CREATE TABLE drop_versions (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          UUID NOT NULL DEFAULT gen_random_uuid(),
   drop_id     UUID NOT NULL REFERENCES drops(id) ON DELETE CASCADE,
   r2_prefix   TEXT NOT NULL,
   byte_size   BIGINT NOT NULL,
   file_count  INT    NOT NULL,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (id),
+  UNIQUE (id, drop_id)
 );
 
+-- Composite FK: current_version must be a version of *this* drop.
 ALTER TABLE drops
-  ADD CONSTRAINT fk_current_version
-  FOREIGN KEY (current_version) REFERENCES drop_versions(id);
+  ADD CONSTRAINT fk_current_version_belongs_to_drop
+  FOREIGN KEY (current_version, id) REFERENCES drop_versions(id, drop_id);
 ```
 
 The `drop_versions` table is the mechanism for atomic deploys, not for history. Each upload writes to a fresh prefix; the switch is a single `UPDATE drops SET current_version = ...`; the old prefix is garbage-collected after commit.
@@ -131,35 +170,76 @@ Drop names are unique per owner, not globally.
 
 ## Auth Flow
 
-1. Unauthenticated request to `/app/*` → redirect to `/auth/login`.
-2. `/auth/login` redirects to Google OAuth with scopes `openid email profile` and a signed `state` cookie for CSRF.
-3. Google redirects to `/auth/callback`. The server verifies the ID token (signature, `aud`, `iss`, `exp`) and extracts `email`, `email_verified`, `name`, `picture`.
+Standard server-side OIDC authorization-code flow against Google.
+
+1. Unauthenticated request to `/app/*` → 302 to `/auth/login`.
+2. `/auth/login`:
+   - Generates a random `state` and `nonce`.
+   - Stores them in a signed, short-lived `oauth_state` cookie on the app origin (HttpOnly, Secure, SameSite=Lax, 10 min).
+   - Redirects to Google's authorization endpoint with `response_type=code`, `scope=openid email profile`, `redirect_uri=${APP_ORIGIN}/auth/callback`, plus `state` and `nonce`.
+3. Google redirects back to `/auth/callback?code=...&state=...`:
+   - Compare `state` with the value in the signed cookie; reject on mismatch.
+   - Exchange `code` for tokens at Google's token endpoint (`grant_type=authorization_code`, with client secret).
+   - Verify the returned ID token: signature against Google's JWKS, `iss`, `aud` (= `GOOGLE_CLIENT_ID`), `exp`, and `nonce` matches the one stored.
+   - Extract `email`, `email_verified`, `name`, `picture`.
 4. Access check:
    - Reject if `email_verified !== true`.
    - Allow if `email` exists in `allowed_emails` or `email` ends with `@${ALLOWED_DOMAIN}`.
-   - Otherwise render a "not authorised" page and create no user row.
-5. On first login, prompt for a username at `/auth/choose-username`. Pre-fill with the slugified email local-part, appending `-2`, `-3`, ... if taken. Validate against the slug rules.
-6. Insert the `users` row, create a session row, set the cookie, redirect to `/app`.
+   - Otherwise render "not authorised" and create no rows.
+5. Resolve identity to a user row:
+   - If a row in `users` already matches `email`, go to step 7.
+   - Otherwise insert a `pending_logins` row with the verified identity, set a signed `pending_login` cookie (10-minute lifetime) carrying the `pending_logins.id`, and 302 to `/auth/choose-username`.
+6. `/auth/choose-username` (app origin):
+   - `GET` requires the `pending_login` cookie; reads the pending identity; renders a form with a suggested slug (slugified email local-part, appending `-2`, `-3`, ... if taken).
+   - `POST` validates the slug against the rules and reserved list, then in one transaction: inserts the `users` row, deletes the `pending_logins` row, and continues to step 7. On slug collision it re-renders the form with an error.
+7. Create a `sessions` row for the user. Set the app-origin session cookie (`drops_session`). Then 302 to the content-origin bootstrap endpoint carrying a short-lived signed handoff token: `${CONTENT_ORIGIN}/auth/bootstrap?token=...&next=${target}`. `target` is the validated `next` parameter that was stashed alongside `state`/`nonce` in the `oauth_state` cookie at step 2 (origin must be `APP_ORIGIN` or `CONTENT_ORIGIN`); if no valid target was carried through login, `target = ${APP_ORIGIN}/app`.
+8. Content-origin `/auth/bootstrap`:
+   - Verify the HMAC signature and expiry (60 seconds) of the handoff token. Its payload is the session id.
+   - Set the content-origin cookie (`drops_content_session`) with the same session id.
+   - 302 to `next`. `next` is validated against an explicit allowlist: its origin must be exactly `APP_ORIGIN` or `CONTENT_ORIGIN`. Any other value falls back to `${APP_ORIGIN}/app`.
 
-**Session cookie**
-- Name: `drops_session`; value: the session id.
-- Flags: `HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=30 days`.
-- Rolling expiry: each request extends `expires_at` when it is more than 24 hours old.
+**Cookies**
 
-Middleware on every non-`/auth/*` route looks up the session, attaches `req.user`, and redirects to `/auth/login` on miss or expiry.
+| Cookie | Origin | Purpose |
+|---|---|---|
+| `drops_session` | `drops.drops.global` | App-host session |
+| `drops_content_session` | `content.drops.drops.global` | Content-host session (same session id) |
+| `oauth_state` | app origin | Signed CSRF state + nonce during OAuth dance (short-lived) |
+| `pending_login` | app origin | Signed reference to a verified-but-unassigned identity (short-lived) |
 
-`POST /auth/logout` deletes the session row and clears the cookie.
+All cookies: `HttpOnly; Secure; SameSite=Lax; Path=/`. Session cookies: `Max-Age=30 days`, rolling (`sessions.expires_at` extends when more than 24 hours old on any request). No `Domain` attribute on any cookie — each is host-only.
+
+**Auth middleware**
+
+- App host: exempted routes are `/health`, `/auth/login`, `/auth/callback`, `/auth/choose-username` (requires the `pending_login` cookie instead), and static assets under `/app/static/*`. All other routes require a valid `drops_session`.
+- Content host: exempted routes are `/auth/bootstrap` and `/auth/logout`. All other routes require a valid `drops_content_session`.
+
+On miss or expiry:
+- App host → 302 to `/auth/login`.
+- Content host → 302 to `${APP_ORIGIN}/auth/login?next=${originalUrl}`; after login, the app-origin completion step issues a bootstrap handoff whose `next` returns the user to `originalUrl`.
+
+`POST /auth/logout` (app origin) deletes the `sessions` row, clears `drops_session`, and also redirects through `${CONTENT_ORIGIN}/auth/logout` which clears `drops_content_session`.
 
 ## Upload Flow (Atomic Replace)
 
-Endpoint: `POST /app/drops/:name/upload`, accepting a form field `upload_type=folder|zip`.
+### Endpoints
+
+There is a single upload endpoint for both creating and updating a drop:
+
+- `POST /app/drops/:name/upload`
+
+If `:name` does not exist for the current user, the endpoint creates the drop as part of the same request. If it exists, the endpoint requires the current user to own it.
+
+Both endpoints accept `multipart/form-data` with a form field `upload_type=folder|zip`.
+
+The separate `GET /app/drops/new` page is a UI-only form — it collects the desired drop name plus the file/folder/zip and POSTs directly to `/app/drops/:name/upload`. No empty drop row is ever created upfront.
 
 ### Client — folder
 
 1. User drags a folder onto the drop page.
 2. The browser walks `DataTransferItemList` via `webkitGetAsEntry`, producing a flat list of `{relativePath, File}`.
-3. Client-side validation: total ≤ 100 MB, file count ≤ 1000, each file ≤ 25 MB, no symlinks, skip dotfiles (`.DS_Store`, `.git/*`).
-4. POSTs a single `multipart/form-data` request containing every file.
+3. Client-side pre-checks (UX only, not a security boundary): total ≤ 100 MB, file count ≤ 1000, each file ≤ 25 MB, skip `.DS_Store` and `.git/*`.
+4. POSTs a single `multipart/form-data` request containing every file. The server re-validates everything.
 
 ### Client — zip
 
@@ -168,22 +248,35 @@ Endpoint: `POST /app/drops/:name/upload`, accepting a form field `upload_type=fo
 
 ### Server
 
-1. Auth check plus ownership check (must be the drop owner, or creating a new drop).
-2. Allocate `version_id = uuid()` and `r2_prefix = drops/<drop_id>/<version_id>/`.
-3. For `upload_type=folder`: stream each part to R2 at `${r2_prefix}${relativePath}`, setting `Content-Type` from the extension and tracking `byte_size` and `file_count`.
-4. For `upload_type=zip`: stream-unzip with `yauzl` entry-by-entry. For each entry:
+1. Auth check. Validate `:name` against slug rules and reserved list.
+2. Determine intent and ownership under a `SELECT ... FOR UPDATE` (or advisory lock keyed on `(user_id, name)`):
+   - If `drops` row exists with `owner_id = current user`, this is an update.
+   - If `drops` row exists with a different owner, return 403.
+   - If no row exists, this is a create. **Do not insert the `drops` row yet** — defer until after R2 success (step 7).
+3. Allocate `new_drop_id = uuid()` (only if creating) and `version_id = uuid()`. Compute `r2_prefix = drops/<drop_id>/<version_id>/`.
+4. **Server-side path sanitisation (applies to both folder and zip paths):**
+   - Decode, normalise (`NFC`), strip any leading `/`, collapse `./`, reject any `..` segment.
+   - Reject absolute Windows paths (drive letters, leading `\`).
+   - Reject components whose name is `.` or `..` or empty.
+   - Reject control characters and NUL bytes.
+   - For zip, also reject entries whose Unix mode (from `externalFileAttributes`) is a symlink.
+   - Reject server-side dotfiles: any path component starting with `.`.
+   - If two different sanitised paths collide after normalisation, reject the upload (`400 conflicting paths after canonicalisation`).
+5. Folder path: stream each multipart part to R2 at `${r2_prefix}${sanitisedPath}`, setting `Content-Type` from the extension, tracking `byte_size` and `file_count`, and enforcing per-file and total limits against bytes actually read.
+6. Zip path: stream-unzip with `yauzl` entry-by-entry. For each entry:
    - Skip directories.
-   - Reject absolute paths, `..` segments, and symlinks (check `externalFileAttributes` for symlink mode).
-   - Enforce the same per-file and total size limits against *decompressed* bytes.
+   - Apply the same sanitisation (step 4).
+   - Enforce the per-file and total size limits against *decompressed* bytes.
    - Zip-bomb guard: abort if a single entry expands more than 100× its compressed size *and* exceeds 10 MB decompressed.
+   - Single-root unwrap: before upload, scan sanitised entries. If all share a common top-level directory (e.g. `my-site/...`), strip that prefix. Matches how `zip -r my-site.zip my-site/` works by convention.
    - Stream the entry to R2 at `${r2_prefix}${cleanedPath}`.
-   - Single-root unwrap: before upload, scan entries. If all paths share a common top-level directory (e.g. `my-site/...`), strip that prefix. Matches how `zip -r my-site.zip my-site/` works by convention.
-5. If any write fails, delete every object written so far under `r2_prefix` and return an error. The drop continues to serve the old version.
-6. On success, in a single transaction:
-   - Insert the `drop_versions` row.
-   - Capture `old_version_id = drops.current_version`.
-   - Update `drops.current_version = new version_id` and bump `updated_at`.
-7. Post-commit, enqueue garbage collection: list R2 objects under the old prefix, delete them, then delete the old `drop_versions` row. A nightly sweep retries any version row not referenced as a `current_version` on any drop.
+7. If any write fails at any point, delete every object written so far under `r2_prefix` and return an error. No DB rows are touched. An existing drop continues to serve the old version; a failed first upload leaves no drop row behind.
+8. On success, in a single transaction:
+   - If creating: `INSERT INTO drops (id, owner_id, name) VALUES (new_drop_id, user.id, name)`.
+   - Insert the `drop_versions` row keyed on the drop id.
+   - Capture `old_version_id = drops.current_version` (NULL for a create).
+   - `UPDATE drops SET current_version = version_id, updated_at = now() WHERE id = drop_id`.
+9. Post-commit, if `old_version_id IS NOT NULL`, enqueue garbage collection: list R2 objects under the old prefix, delete them, then delete the old `drop_versions` row. A nightly sweep retries any version row not referenced as a `current_version` on any drop.
 
 ### Limits
 
@@ -193,9 +286,9 @@ Endpoint: `POST /app/drops/:name/upload`, accepting a form field `upload_type=fo
 
 ## Serving Drops
 
-Route: `GET /:username/:dropname/*`, registered after `/auth` and `/app`.
+Route: `GET /:username/:dropname/*` on the **content host** (`content.drops.drops.global`). Requests to this path pattern on the app host return 404.
 
-1. Auth middleware runs first. Any authenticated user may view any drop.
+1. Content-host auth middleware runs first: requires a valid `drops_content_session`. Any authenticated user may view any drop. No-session handling is covered in the Auth Flow section (bootstrap redirect through the app host).
 2. Look up the user by `username`, then the drop by `(owner_id, name)`, then the `current_version` and its `r2_prefix`. Any miss is a 404.
 3. Resolve the path:
    - `GET /:username/:dropname` → 301 to `/:username/:dropname/` (so relative paths in HTML resolve).
@@ -222,11 +315,11 @@ Server-rendered HTML with a sprinkle of vanilla JavaScript for drag-drop. Single
 - *Your drops*: owned by the current user, newest first. Each row: name, `updated_at`, size, links to view / edit / delete.
 - *All drops*: everyone's drops, newest first, paginated (25 per page).
 
-**`GET /app/drops/new`** — create form with a drop-name input and a drag-drop zone. Submission creates an empty drop row, then runs the upload flow to produce the first version.
+**`GET /app/drops/new`** — create form with a drop-name input and a drag-drop zone. Submits directly to `POST /app/drops/:name/upload`, which atomically creates the drop row only if the upload succeeds. A failed first upload leaves no drop row behind.
 
-**`GET /app/drops/:name`** (owner only) — edit page. Shows current version metadata and a "Replace contents" drag-drop zone. A "Delete drop" button (with confirm) triggers `DELETE /app/drops/:name`, which removes the drop, version rows, and R2 prefix.
+**`GET /app/drops/:name`** (owner only) — edit page. Shows current version metadata, a "View" link to `${CONTENT_ORIGIN}/:username/:name/`, and a "Replace contents" drag-drop zone. A "Delete drop" button (with confirm) triggers `DELETE /app/drops/:name`, which removes the drop, version rows, and R2 prefix.
 
-Non-owners hitting `/app/drops/:name` receive 403. They can still view the drop itself.
+Non-owners hitting `/app/drops/:name` receive 403. They can still view the drop at the content origin.
 
 Nav: "Drops" on the left, username plus logout on the right.
 
@@ -255,11 +348,13 @@ No mocking of R2 or Postgres in integration tests.
 
 ## Security
 
-- CSRF: all state-changing routes require a same-origin check and a double-submit token in a form field, generated per session.
-- `Content-Security-Policy` headers on `/app/*` pages only. None on served drops — their contents are user-controlled.
-- `X-Frame-Options: DENY` on `/app/*`.
-- Rate limiting on `/auth/*` and upload endpoints via `@fastify/rate-limit`.
-- R2 keys strictly under the drop's prefix; path traversal rejected at the resolver.
+- **Origin separation.** App (`drops.drops.global`) and content (`content.drops.drops.global`) are independent origins with independent cookies, so drop JavaScript has no same-origin access to `/app`.
+- **CSRF.** All state-changing routes require a same-origin `Origin`/`Referer` check against `APP_ORIGIN` and a double-submit token bound to the session.
+- **CSP on the app origin.** Strict `Content-Security-Policy` with nonce-based script allowance; no `unsafe-inline`. No CSP on served drops — their contents are user-controlled.
+- **Frame protection.** `X-Frame-Options: DENY` on the app origin. The content origin allows framing (drops may embed or be embedded); the origin separation makes this safe.
+- **Rate limiting.** `/auth/*` and upload endpoints via `@fastify/rate-limit`.
+- **Path safety.** R2 keys strictly under the drop's prefix; server-side sanitisation rejects `..`, absolute paths, symlinks, control characters, and post-canonicalisation collisions.
+- **Transport.** `Strict-Transport-Security: max-age=63072000; includeSubDomains` on both origins.
 
 ## Stack Summary
 
