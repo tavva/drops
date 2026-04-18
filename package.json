@@ -1,8 +1,14 @@
 {
   "name": "drops",
   "version": "0.0.0",
-  "private": true,
+  "description": "Single-tenant private static-site host. Sign in with Google, upload a folder/zip/file, share the URL.",
   "type": "module",
+  "license": "MIT",
+  "author": "Ben Phillips <ben@ben-phillips.net>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tavva/drops.git"
+  },
   "engines": {
     "node": ">=22.0.0"
   },
