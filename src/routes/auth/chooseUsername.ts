@@ -48,6 +48,7 @@ export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
       next,
       csrfToken,
       error: null,
+      contentOrigin: config.CONTENT_ORIGIN,
     });
   });
 
@@ -74,6 +75,7 @@ export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
       next,
       csrfToken: issueCsrfToken(pending.id),
       error,
+      contentOrigin: config.CONTENT_ORIGIN,
     });
 
     if (!isValidSlug(username)) return rerender('Username must be 2–32 chars, a-z, 0-9, and hyphens, starting and ending with a letter or digit.');

@@ -2,35 +2,148 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Edit drop — <%= drop.name %></title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Drop: <%= drop.name %> — drops</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
     <link rel="stylesheet" href="/app/static/style.css">
     <script src="/app/static/new-drop.js" defer></script>
   </head>
-  <body>
-    <h1>Drop: <%= drop.name %></h1>
-    <p><a href="<%= contentUrl %>">View at <%= contentUrl %></a></p>
-    <% if (drop.version) { %>
-      <p>Current version: <%= drop.version.fileCount %> files, <%= drop.version.byteSize %> bytes.</p>
-    <% } %>
-
-    <h2>Replace contents</h2>
-    <form id="new-drop-form" data-csrf="<%= csrfToken %>" data-fixed-name="<%= drop.name %>">
-      <div id="drop-zone">
-        <p>Drag a folder, a .zip, or any file here — or pick below.</p>
-        <p class="pickers">
-          <label class="picker"><strong>Files:</strong> <input type="file" id="drop-files" multiple></label>
-          <label class="picker"><strong>Folder:</strong> <input type="file" id="drop-folder" multiple webkitdirectory></label>
-        </p>
+  <body class="app-viewport">
+    <header class="app-header">
+      <div class="app-wordmark">
+        <svg class="drop" viewBox="0 0 24 32" aria-hidden="true">
+          <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
+          <ellipse class="hl" cx="8.5" cy="18" rx="2.2" ry="3"/>
+        </svg>
+        <span>drops</span>
+        <span class="sep">/</span>
+        <a class="ctx" href="/app">Drops</a>
+        <span class="sep">/</span>
+        <span class="ctx"><%= drop.name %></span>
       </div>
-      <button type="submit">Upload new version</button>
-    </form>
+    </header>
 
-    <h2>Delete drop</h2>
-    <form method="post" action="/app/drops/<%= drop.name %>/delete">
-      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-      <button type="submit">Delete</button>
-    </form>
+    <div class="app-main">
+      <div class="page-head">
+        <h1><%= drop.name %></h1>
+        <div class="actions">
+          <a class="btn" href="<%= contentUrl %>" target="_blank" rel="noreferrer">↗ View live</a>
+        </div>
+      </div>
 
-    <p><a href="/app">Back to dashboard</a></p>
+      <div class="edit-grid">
+        <div>
+          <div class="card version-card mb-24">
+            <div class="title-row">
+              <h3>Current version</h3>
+              <% if (drop.version) { %>
+                <span class="tag live">● live</span>
+              <% } else { %>
+                <span class="tag">empty</span>
+              <% } %>
+            </div>
+            <div class="link-row">
+              <span class="host"><%= new URL(contentUrl).origin %>/</span><span class="path"><%= new URL(contentUrl).pathname.replace(/^\//, '') %></span>
+              <div class="spacer"></div>
+              <a href="<%= contentUrl %>" target="_blank" rel="noreferrer">open ↗</a>
+            </div>
+            <% if (drop.version) { %>
+              <dl class="version-kv">
+                <dt>Files</dt><dd><%= drop.version.fileCount %> files</dd>
+                <dt>Size</dt><dd><%= drop.version.byteSize %> bytes</dd>
+                <dt>Version</dt><dd class="v-mono"><%= drop.version.id %></dd>
+              </dl>
+            <% } else { %>
+              <p class="hint">No version uploaded yet.</p>
+            <% } %>
+          </div>
+
+          <form id="new-drop-form" class="card" data-csrf="<%= csrfToken %>" data-fixed-name="<%= drop.name %>">
+            <div class="section-head">
+              <h2>Replace contents</h2>
+              <div class="spacer"></div>
+              <span class="pill">atomic</span>
+            </div>
+            <div id="drop-zone" class="dropzone" style="padding: 36px 24px;">
+              <div class="big-drop" style="width: 52px; height: 66px;">
+                <svg viewBox="0 0 24 32" aria-hidden="true">
+                  <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
+                  <ellipse class="hl" cx="8.5" cy="18" rx="2.2" ry="3"/>
+                </svg>
+              </div>
+              <h2 style="font-size: 18px;">Replace contents</h2>
+              <p class="sub">Folder, zip, or a single file.</p>
+              <div class="pickers">
+                <label class="picker-btn">Files
+                  <input type="file" id="drop-files" multiple>
+                </label>
+                <label class="picker-btn">Folder
+                  <input type="file" id="drop-folder" multiple webkitdirectory>
+                </label>
+              </div>
+
+              <div class="upload-meter">
+                <div class="label"><span id="progress">Uploading…</span><span class="pct" id="upload-pct">0%</span></div>
+                <div class="bar"><div class="fill" id="upload-fill"></div></div>
+              </div>
+            </div>
+
+            <p id="error" class="error" hidden></p>
+
+            <div class="newdrop-actions">
+              <button class="btn primary" type="submit">Upload new version</button>
+            </div>
+          </form>
+        </div>
+
+        <div>
+          <div class="card side-card danger">
+            <h3>Delete drop</h3>
+            <p>Removes the drop, all versions, and its R2 prefix. Not reversible.</p>
+            <button class="btn danger sm" id="delete-btn" type="button">Delete <%= drop.name %>…</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-bg" id="delete-modal" hidden>
+      <div class="modal">
+        <h3>Delete <%= drop.name %>?</h3>
+        <p>This removes the drop, all versions, and every file in its R2 prefix. It cannot be undone. Type <code><%= drop.name %></code> to confirm.</p>
+        <form method="post" action="/app/drops/<%= drop.name %>/delete" id="delete-form">
+          <div class="field">
+            <div class="input-wrap">
+              <input type="text" id="delete-confirm" autocomplete="off" spellcheck="false" placeholder="<%= drop.name %>">
+            </div>
+          </div>
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <div class="actions">
+            <button class="btn ghost" type="button" id="delete-cancel">Cancel</button>
+            <button class="btn danger" type="submit" id="delete-submit" disabled>Delete</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        const dropName = <%- JSON.stringify(drop.name) %>;
+        const bg = document.getElementById('delete-modal');
+        const openBtn = document.getElementById('delete-btn');
+        const cancelBtn = document.getElementById('delete-cancel');
+        const confirmInput = document.getElementById('delete-confirm');
+        const submitBtn = document.getElementById('delete-submit');
+        if (!bg || !openBtn) return;
+        openBtn.addEventListener('click', () => { bg.hidden = false; confirmInput.focus(); });
+        cancelBtn.addEventListener('click', () => { bg.hidden = true; });
+        bg.addEventListener('click', (e) => { if (e.target === bg) bg.hidden = true; });
+        confirmInput.addEventListener('input', () => {
+          submitBtn.disabled = confirmInput.value !== dropName;
+        });
+      })();
+    </script>
   </body>
 </html>
