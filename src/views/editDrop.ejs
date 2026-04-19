@@ -97,6 +97,81 @@
               <button class="btn primary" type="submit">Upload new version</button>
             </div>
           </form>
+
+          <div class="card mt-16" style="padding: 18px 20px;">
+            <div class="section-head">
+              <h2>Who can view</h2>
+              <div class="spacer"></div>
+              <% if (drop.viewMode === 'public') { %><span class="tag">public</span>
+              <% } else if (drop.viewMode === 'emails') { %><span class="tag">list</span>
+              <% } else { %><span class="tag">members</span><% } %>
+            </div>
+
+            <form method="post" action="/app/drops/<%= drop.name %>/permissions" class="permissions-form">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <label class="perm-choice">
+                <input type="radio" name="mode" value="authed" <%= drop.viewMode === 'authed' ? 'checked' : '' %>>
+                <span class="perm-label">
+                  <strong>Any member</strong>
+                  <span class="hint">Default. Anyone who can sign in to this instance.</span>
+                </span>
+              </label>
+              <label class="perm-choice">
+                <input type="radio" name="mode" value="public" <%= drop.viewMode === 'public' ? 'checked' : '' %>>
+                <span class="perm-label">
+                  <strong>Public</strong>
+                  <span class="hint">Any Google account. No allowlist check.</span>
+                </span>
+              </label>
+              <label class="perm-choice">
+                <input type="radio" name="mode" value="emails" <%= drop.viewMode === 'emails' ? 'checked' : '' %>>
+                <span class="perm-label">
+                  <strong>Specific people</strong>
+                  <span class="hint">Only the email addresses you list below.</span>
+                </span>
+              </label>
+              <div class="newdrop-actions">
+                <button class="btn primary sm" type="submit">Save</button>
+              </div>
+            </form>
+
+            <% if (drop.viewMode === 'emails') { %>
+              <div class="divider"></div>
+              <h3 style="font-size: 14px; margin-bottom: 10px;">Permitted viewers</h3>
+
+              <% if (viewerError) { %>
+                <p class="hint err" id="viewer-error"><%= viewerError %></p>
+              <% } %>
+
+              <form method="post" action="/app/drops/<%= drop.name %>/viewers" class="viewer-add">
+                <div class="field">
+                  <div class="input-wrap">
+                    <input type="email" name="email" required autocomplete="off"
+                           spellcheck="false" placeholder="name@example.com">
+                  </div>
+                </div>
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <button class="btn sm" type="submit">Add</button>
+              </form>
+
+              <% if (viewers.length === 0) { %>
+                <p class="hint">No viewers yet — only you can see this drop.</p>
+              <% } else { %>
+                <ul class="viewer-list">
+                  <% viewers.forEach(function(v) { %>
+                    <li>
+                      <span class="email"><%= v.email %></span>
+                      <form method="post"
+                            action="/app/drops/<%= drop.name %>/viewers/<%= encodeURIComponent(v.email) %>/delete">
+                        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                        <button class="btn ghost sm" type="submit" title="remove">✕</button>
+                      </form>
+                    </li>
+                  <% }) %>
+                </ul>
+              <% } %>
+            <% } %>
+          </div>
         </div>
 
         <div>
