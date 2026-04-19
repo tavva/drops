@@ -57,7 +57,8 @@ Callback computes `isMemberEmail(email)`. The branch then depends on *existing u
 `canSignInAsViewer(email)` is true iff:
 
 1. at least one drop has `view_mode = 'public'`, or
-2. email appears in `drop_viewers` on at least one drop.
+2. email appears in `drop_viewers` on at least one drop, or
+3. the email owns at least one drop (keeps demoted owners able to sign in and view their own drops, since `canView` always admits the owner).
 
 ### Two changes to `choose-username`
 
@@ -135,6 +136,7 @@ isMemberEmail(email):
 canSignInAsViewer(email):
   EXISTS drop with view_mode = 'public'
   OR EXISTS drop_viewers row with email
+  OR EXISTS drop owned by a user with this email
 
 admit(email):
   if isMemberEmail(email): allow as member
