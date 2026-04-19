@@ -1,17 +1,63 @@
 # drops
 
-Private static-site host. Sign in with Google, drag a folder/zip/file, share the resulting URL with anyone on your allowlist. Each instance is single-tenant — one workspace per deploy, with a separate serving domain so user-uploaded HTML can't reach the control plane.
+[![Node](https://img.shields.io/badge/node-%E2%89%A522-3c873a?logo=node.js&logoColor=white)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Fastify](https://img.shields.io/badge/Fastify-5-000?logo=fastify&logoColor=white)](https://fastify.dev)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-## Architecture
+> Private static-site host for one workspace. Sign in with Google, drag a folder, share the URL.
 
-One Fastify + TypeScript service per instance, host-routed:
+`drops` is a single-tenant Fastify service for hosting throwaway and long-lived static sites behind your team's allowlist. Upload a folder, zip, or single file and you get a stable URL on a separate serving domain — so user-uploaded HTML can never reach the control plane.
 
-- **App origin** (`APP_ORIGIN`, e.g. `https://drops.example.com`) — auth, uploads, dashboard.
-- **Content origin** (`CONTENT_ORIGIN`, e.g. `https://content.drops.example.com`) — serves the published drops.
+It's the thing you reach for when you want to share a Storybook build, an exported design, a one-page demo, or a screenshot bundle without standing up a CDN, configuring access policies, or polluting your main app's origin.
 
-Postgres holds metadata (Drizzle ORM). Cloudflare R2 holds files. Each upload writes to a fresh `drops/<versionId>/` prefix; a single `UPDATE` flips `drops.current_version` so readers never see a half-written drop. Orphaned prefixes are GC'd on a schedule.
+## Contents
 
-## Local development
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Quick start (local)](#quick-start-local)
+- [Tests](#tests)
+- [Architecture](#architecture)
+- [Environment](#environment)
+- [Deployment (Railway)](#deployment-railway)
+- [Multiple instances](#multiple-instances)
+- [Security notes](#security-notes)
+- [Licence](#licence)
+
+## Features
+
+- **Drag-and-drop publishing** — upload a folder, zip, or single file from the dashboard.
+- **Atomic versions** — each upload is a fresh prefix in R2; readers cut over with a single `UPDATE` and never see a half-written drop.
+- **Two-origin isolation** — control plane and serving plane are separate hostnames on the same process, so user HTML can't touch session cookies or upload routes.
+- **Google sign-in + allowlist** — auto-allow by email domain, opt-in extras via the `allowed_emails` table.
+- **Hardened paths and zips** — NFC-normalised paths, rejected traversal/control chars, symlink and zip-bomb protections.
+- **Background GC** — orphaned R2 prefixes from failed uploads or replaced versions are swept on a schedule.
+- **Single-tenant by design** — one Postgres + one R2 bucket per deploy. No cross-tenant blast radius.
+
+## How it works
+
+```
+       ┌────────────────────┐                  ┌─────────────────────┐
+You ──▶│  APP_ORIGIN        │                  │  CONTENT_ORIGIN     │
+       │  drops.example.com │                  │  content.drops.…    │
+       │                    │                  │                     │
+       │  • Google OAuth    │  HMAC handoff    │  • Serves drops     │
+       │  • Dashboard       │ ───────────────▶ │  • Per-origin       │
+       │  • Uploads         │                  │    session cookie   │
+       └────────┬───────────┘                  └──────────┬──────────┘
+                │                                         │
+                ▼                                         ▼
+       ┌────────────────────┐                  ┌─────────────────────┐
+       │  Postgres          │                  │  Cloudflare R2      │
+       │  (Drizzle schema)  │                  │  drops/<versionId>/ │
+       └────────────────────┘                  └─────────────────────┘
+```
+
+Both origins are routed by the same Fastify process; `req.hostKind` decides which routes are reachable on which host.
+
+## Quick start (local)
+
+Prerequisites: Node ≥ 22, pnpm, Docker.
 
 ```bash
 pnpm install
@@ -24,9 +70,16 @@ pnpm dev:seed           # prints a signed cookie so you can skip OAuth locally
 pnpm dev
 ```
 
-Postgres runs on `55432` locally to dodge conflicts with other Postgres installs. MinIO console: http://localhost:9001 (`minioadmin` / `minioadmin`).
+Postgres runs on `55432` locally to dodge conflicts with other Postgres installs. MinIO console: <http://localhost:9001> (`minioadmin` / `minioadmin`).
 
-For browser testing locally: set `APP_ORIGIN=http://drops.localtest.me:3000` and `CONTENT_ORIGIN=http://content.localtest.me:3000` in `.env` (both subdomains of `localtest.me` resolve to 127.0.0.1). Paste the cookies `pnpm dev:seed` prints into each origin's cookie jar.
+For browser testing locally, set both origins to subdomains of `localtest.me` (which resolves to `127.0.0.1`):
+
+```env
+APP_ORIGIN=http://drops.localtest.me:3000
+CONTENT_ORIGIN=http://content.localtest.me:3000
+```
+
+Paste the cookies `pnpm dev:seed` prints into each origin's cookie jar.
 
 ## Tests
 
@@ -34,7 +87,23 @@ For browser testing locally: set `APP_ORIGIN=http://drops.localtest.me:3000` and
 pnpm test        # unit + integration (needs docker compose up -d)
 pnpm test:e2e    # Playwright happy path
 pnpm typecheck
+pnpm lint
 ```
+
+Integration tests share one vitest worker (`pool: 'forks'`, `fileParallelism: false`) and a once-per-run rebuild of the test database — don't try to parallelise them across files.
+
+## Architecture
+
+One Fastify + TypeScript service per instance, host-routed:
+
+- **App origin** (`APP_ORIGIN`) — auth, uploads, dashboard.
+- **Content origin** (`CONTENT_ORIGIN`) — serves the published drops.
+
+Cookies are scoped per origin, so logging into the app doesn't grant anything on the content origin. To hand off a session across the gap, the app issues a short-lived HMAC token (`src/lib/handoff.ts`, payload `sessionId:exp`) and the content origin's bootstrap route verifies it and sets its own cookie. There is no shared cookie domain by design.
+
+Postgres holds metadata via Drizzle ORM. Cloudflare R2 holds files. Each upload writes to a fresh `drops/<versionId>/` prefix, then a single `UPDATE drops SET current_version = ...` flips readers over atomically. `src/services/gc.ts` + `scheduler.ts` sweep orphaned prefixes (versions that never became current, or previous versions after replacement). `startOrphanSweep()` is kicked off from `src/index.ts` on boot.
+
+Routes are wired in `src/index.ts` against `onAppHost` / `onContentHost` plugin wrappers — that's the single place new routes get bound to a host.
 
 ## Environment
 
@@ -75,13 +144,17 @@ pnpm typecheck
 
 ## Multiple instances
 
-Each instance gets its own Railway project + Postgres + R2 bucket + DNS pair. The code doesn't change between instances — only env vars. Rough costs scale linearly with the number of instances.
+Each instance gets its own Railway project + Postgres + R2 bucket + DNS pair. The code doesn't change between instances — only env vars. Costs scale roughly linearly with the number of instances.
 
 A single Google OAuth Web client can be shared across instances: add one redirect URI per deployment (e.g. `https://drops.example.com/auth/callback`, `https://drops.other.com/auth/callback`). The same `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` values go on every instance. Tradeoff: the secret's blast radius now covers every instance, so if one deployment leaks its env, rotate the shared client.
 
 ## Security notes
 
 - Session cookies are scoped per origin (app vs content) and transferred across the gap with a short-lived HMAC handoff token.
-- CSRF tokens are bound to the session id (or pending-login id pre-signup) via HMAC plus an exact-origin check.
+- CSRF tokens are bound to the session id (or pending-login id pre-signup) via HMAC plus an exact-origin match.
 - Uploaded paths are NFC-normalised and rejected if they contain absolute roots, parent-segment traversal, control chars, or leading dots.
 - Zip uploads are spooled to disk; symlink entries and bomb-ratio entries are rejected before any bytes hit R2.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
