@@ -136,7 +136,7 @@ describe('GET/POST /auth/choose-username', () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain('value="promoted"');
-    expect(res.body).toContain('id="uname-preview"');
+    expect(res.body).toContain('id="uname-input"');
   });
 
   it('POST with app-session updates the existing user\'s username', async () => {
