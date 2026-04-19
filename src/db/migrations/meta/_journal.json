@@ -8,6 +8,13 @@
       "when": 1776515921675,
       "tag": "0000_rapid_prodigy",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1776588683229,
+      "tag": "0001_medical_the_fallen",
+      "breakpoints": true
     }
   ]
 }

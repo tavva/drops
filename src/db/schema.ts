@@ -1,6 +1,6 @@
 // ABOUTME: Drizzle schema for the drops app: users, sessions, pending logins, drops, drop versions.
 // ABOUTME: Composite FK drops.current_version -> drop_versions(id, drop_id) is added by a raw SQL step in the migration.
-import { pgTable, text, uuid, bigint, integer, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import { pgTable, text, uuid, bigint, integer, timestamp, uniqueIndex, index, primaryKey, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const allowedEmails = pgTable('allowed_emails', {
@@ -11,11 +11,15 @@ export const allowedEmails = pgTable('allowed_emails', {
 export const users = pgTable('users', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   email: text('email').notNull().unique(),
-  username: text('username').notNull().unique(),
+  username: text('username'),
+  kind: text('kind').notNull().default('member'),
   name: text('name'),
   avatarUrl: text('avatar_url'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => ({
+  usernameUnique: uniqueIndex('users_username_unique').on(t.username).where(sql`${t.username} IS NOT NULL`),
+  kindCheck: check('users_kind_check', sql`${t.kind} IN ('member','viewer')`),
+}));
 
 export const sessions = pgTable('sessions', {
   id: text('id').primaryKey(),
@@ -38,10 +42,12 @@ export const drops = pgTable('drops', {
   ownerId: uuid('owner_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   name: text('name').notNull(),
   currentVersion: uuid('current_version'),
+  viewMode: text('view_mode').notNull().default('authed'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   ownerNameUnique: uniqueIndex('drops_owner_name_unique').on(t.ownerId, t.name),
+  viewModeCheck: check('drops_view_mode_check', sql`${t.viewMode} IN ('authed','public','emails')`),
 }));
 
 export const dropVersions = pgTable('drop_versions', {
@@ -53,4 +59,13 @@ export const dropVersions = pgTable('drop_versions', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   idDropUnique: uniqueIndex('drop_versions_id_drop_unique').on(t.id, t.dropId),
+}));
+
+export const dropViewers = pgTable('drop_viewers', {
+  dropId: uuid('drop_id').notNull().references(() => drops.id, { onDelete: 'cascade' }),
+  email: text('email').notNull(),
+  addedAt: timestamp('added_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.dropId, t.email] }),
+  emailIdx: index('drop_viewers_email_idx').on(t.email),
 }));
