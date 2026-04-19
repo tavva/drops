@@ -479,6 +479,8 @@ code, kbd, .mono { font-family: var(--font-mono); }
   color: var(--success);
   font-family: var(--font-mono); font-size: 11.5px;
 }
+.ready-pill[hidden] { display: none; }
+.dropzone.is-uploading .ready-pill { display: none; }
 
 .newdrop-actions {
   margin-top: 16px;

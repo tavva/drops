@@ -9,6 +9,7 @@
   const progressEl = document.getElementById('progress');
   const pctEl = document.getElementById('upload-pct');
   const fillEl = document.getElementById('upload-fill');
+  const readyPillEl = document.getElementById('ready-pill');
   const errorEl = document.getElementById('error');
   const nameInput = document.getElementById('drop-name');
   const submitBtn = form.querySelector('button[type=submit]');
@@ -27,8 +28,11 @@
     if (fillEl) fillEl.style.width = `${pct}%`;
   }
   function markReady(label) {
-    setProgress(label);
     setPct(0);
+    if (readyPillEl) {
+      readyPillEl.textContent = label;
+      readyPillEl.hidden = false;
+    }
     if (submitBtn) submitBtn.disabled = false;
   }
 
