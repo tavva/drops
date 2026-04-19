@@ -24,7 +24,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --env-file-if-exists=.env src/db/migrate.ts",
     "dev:seed": "tsx --env-file=.env scripts/dev-seed.ts",
-    "dev:init-bucket": "tsx --env-file=.env scripts/dev-init-bucket.ts"
+    "dev:init-bucket": "tsx --env-file=.env scripts/dev-init-bucket.ts",
+    "dev:preview": "tsx scripts/preview.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
