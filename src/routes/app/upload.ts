@@ -5,7 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { sql } from 'drizzle-orm';
 import { db } from '@/db';
 import { drops, dropVersions } from '@/db/schema';
-import { requireAppSession } from '@/middleware/auth';
+import { requireCompletedMember } from '@/middleware/auth';
 import { isValidSlug } from '@/lib/slug';
 import { uploadFolderParts, UPLOAD_LIMITS, MultipartPart } from '@/services/upload';
 import { uploadZip } from '@/services/uploadZip';
@@ -28,7 +28,7 @@ async function* adaptParts(iter: AsyncIterable<unknown>, log: (obj: Record<strin
 }
 
 export const uploadRoute: FastifyPluginAsync = async (app) => {
-  app.post('/app/drops/:name/upload', { preHandler: requireAppSession }, async (req, reply) => {
+  app.post('/app/drops/:name/upload', { preHandler: requireCompletedMember }, async (req, reply) => {
     const { name } = req.params as { name: string };
     if (!isValidSlug(name)) return reply.code(400).send({ error: 'invalid_name' });
 

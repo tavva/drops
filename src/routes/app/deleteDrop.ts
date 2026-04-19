@@ -1,13 +1,13 @@
 // ABOUTME: POST /app/drops/:name/delete — removes a drop and fires off R2 prefix cleanup.
 import type { FastifyPluginAsync } from 'fastify';
-import { requireAppSession } from '@/middleware/auth';
+import { requireCompletedMember } from '@/middleware/auth';
 import { isValidSlug } from '@/lib/slug';
 import { findByOwnerAndName, listVersionsForDrop, deleteDrop } from '@/services/drops';
 import { deletePrefix } from '@/lib/r2';
 import { config } from '@/config';
 
 export const deleteDropRoute: FastifyPluginAsync = async (app) => {
-  app.post('/app/drops/:name/delete', { preHandler: requireAppSession }, async (req, reply) => {
+  app.post('/app/drops/:name/delete', { preHandler: requireCompletedMember }, async (req, reply) => {
     const { name } = req.params as { name: string };
     if (!isValidSlug(name)) return reply.code(404).send('not_found');
     const user = req.user!;

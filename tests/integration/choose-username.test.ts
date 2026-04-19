@@ -117,4 +117,105 @@ describe('GET/POST /auth/choose-username', () => {
     const rows = await db.select().from(users);
     expect(rows.some((u) => u.username === 'alpha')).toBe(true);
   });
+
+  it('GET with a member app-session and null username renders the form', async () => {
+    const { db } = await import('@/db');
+    const { users, sessions, pendingLogins } = await import('@/db/schema');
+    await db.delete(sessions); await db.delete(users); await db.delete(pendingLogins);
+    const [u] = await db.insert(users).values({
+      email: 'promoted@example.com', kind: 'member',
+    }).returning();
+    const { createSession } = await import('@/services/sessions');
+    const sid = await createSession(u!.id);
+    const { signCookie } = await import('@/lib/cookies');
+    const { config } = await import('@/config');
+    const cookie = `drops_session=${signCookie(sid, config.SESSION_SECRET)}`;
+    const res = await appInstance.inject({
+      method: 'GET', url: '/auth/choose-username',
+      headers: { host: 'drops.localtest.me', cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('value="promoted"');
+    expect(res.body).toContain('id="uname-preview"');
+  });
+
+  it('POST with app-session updates the existing user\'s username', async () => {
+    const { db } = await import('@/db');
+    const { users, sessions, pendingLogins } = await import('@/db/schema');
+    await db.delete(sessions); await db.delete(users); await db.delete(pendingLogins);
+    const [u] = await db.insert(users).values({
+      email: 'promoted@example.com', kind: 'member',
+    }).returning();
+    const { createSession } = await import('@/services/sessions');
+    const sid = await createSession(u!.id);
+    const { signCookie } = await import('@/lib/cookies');
+    const { config } = await import('@/config');
+    const { issueCsrfToken } = await import('@/lib/csrf');
+    const csrf = issueCsrfToken(sid);
+    const cookie = `drops_session=${signCookie(sid, config.SESSION_SECRET)}; drops_csrf=${csrf}`;
+
+    const res = await appInstance.inject({
+      method: 'POST', url: '/auth/choose-username',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: 'http://drops.localtest.me:3000',
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: `username=picked&next=${encodeURIComponent('http://drops.localtest.me:3000/app')}&_csrf=${encodeURIComponent(csrf)}`,
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toContain('/auth/bootstrap');
+
+    const { findByEmail } = await import('@/services/users');
+    const after = await findByEmail('promoted@example.com');
+    expect(after!.username).toBe('picked');
+  });
+
+  it('POST with invalid username re-renders 400 and form is resubmittable', async () => {
+    const { db } = await import('@/db');
+    const { users, sessions, pendingLogins } = await import('@/db/schema');
+    await db.delete(sessions); await db.delete(users); await db.delete(pendingLogins);
+    const [u] = await db.insert(users).values({
+      email: 'promoted@example.com', kind: 'member',
+    }).returning();
+    const { createSession } = await import('@/services/sessions');
+    const sid = await createSession(u!.id);
+    const { signCookie } = await import('@/lib/cookies');
+    const { config } = await import('@/config');
+    const { issueCsrfToken } = await import('@/lib/csrf');
+    const csrf = issueCsrfToken(sid);
+    const cookie = `drops_session=${signCookie(sid, config.SESSION_SECRET)}; drops_csrf=${csrf}`;
+
+    const bad = await appInstance.inject({
+      method: 'POST', url: '/auth/choose-username',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: 'http://drops.localtest.me:3000',
+        cookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: `username=A&next=${encodeURIComponent('http://drops.localtest.me:3000/app')}&_csrf=${encodeURIComponent(csrf)}`,
+    });
+    expect(bad.statusCode).toBe(400);
+
+    const setCookies = [bad.headers['set-cookie']].flat().filter(Boolean) as string[];
+    const refreshed = setCookies.find((c) => c.startsWith('drops_csrf='))!;
+    const newCookieVal = refreshed.split(';')[0]!.split('=')[1]!;
+    const bodyTokenMatch = bad.body.match(/name="_csrf" value="([^"]+)"/);
+    expect(bodyTokenMatch![1]).toBe(newCookieVal);
+
+    const retryCookie = `drops_session=${signCookie(sid, config.SESSION_SECRET)}; drops_csrf=${newCookieVal}`;
+    const good = await appInstance.inject({
+      method: 'POST', url: '/auth/choose-username',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: 'http://drops.localtest.me:3000',
+        cookie: retryCookie,
+        'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: `username=picked&next=${encodeURIComponent('http://drops.localtest.me:3000/app')}&_csrf=${encodeURIComponent(newCookieVal)}`,
+    });
+    expect(good.statusCode).toBe(302);
+  });
 });

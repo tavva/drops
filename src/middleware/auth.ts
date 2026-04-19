@@ -64,6 +64,14 @@ export async function requireAppSession(req: FastifyRequest, reply: FastifyReply
   req.log = req.log.child({ user_id: found.user.id });
 }
 
+export async function requireCompletedMember(req: FastifyRequest, reply: FastifyReply) {
+  await requireAppSession(req, reply);
+  if (reply.sent) return;
+  if (req.user && req.user.username === null) {
+    return reply.redirect(new URL('/auth/choose-username', config.APP_ORIGIN).toString(), 302);
+  }
+}
+
 export async function requireContentSession(req: FastifyRequest, reply: FastifyReply) {
   const found = await loadFromCookie(req, CONTENT_SESSION_COOKIE);
   if (!found) {
