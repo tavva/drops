@@ -5,11 +5,9 @@
 [![Fastify](https://img.shields.io/badge/Fastify-5-000?logo=fastify&logoColor=white)](https://fastify.dev)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
-> Private static-site host for one workspace. Sign in with Google, drag a folder, share the URL.
+`drops` is a single-tenant private static-site host. Sign in with Google, drag a folder, zip, or file at the app origin, get a stable URL on a separate serving origin. Each deploy is one workspace — one Postgres, one R2 bucket, one allowlist.
 
-`drops` is a single-tenant Fastify service for hosting throwaway and long-lived static sites behind your team's allowlist. Upload a folder, zip, or single file and you get a stable URL on a separate serving domain — so user-uploaded HTML can never reach the control plane.
-
-It's the thing you reach for when you want to share a Storybook build, an exported design, a one-page demo, or a screenshot bundle without standing up a CDN, configuring access policies, or polluting your main app's origin.
+Good for the things you don't want on your main app's domain: Storybook builds, exported designs, one-off preview links, screenshot bundles for clients.
 
 ## Contents
 
@@ -26,13 +24,13 @@ It's the thing you reach for when you want to share a Storybook build, an export
 
 ## Features
 
-- **Drag-and-drop publishing** — upload a folder, zip, or single file from the dashboard.
-- **Atomic versions** — each upload is a fresh prefix in R2; readers cut over with a single `UPDATE` and never see a half-written drop.
-- **Two-origin isolation** — control plane and serving plane are separate hostnames on the same process, so user HTML can't touch session cookies or upload routes.
-- **Google sign-in + allowlist** — auto-allow by email domain, opt-in extras via the `allowed_emails` table.
-- **Hardened paths and zips** — NFC-normalised paths, rejected traversal/control chars, symlink and zip-bomb protections.
-- **Background GC** — orphaned R2 prefixes from failed uploads or replaced versions are swept on a schedule.
-- **Single-tenant by design** — one Postgres + one R2 bucket per deploy. No cross-tenant blast radius.
+- Drag-and-drop publishing. Folders, zips, single files.
+- Atomic versions. Each upload writes to a fresh `drops/<versionId>/` prefix, then one `UPDATE` flips readers over. Nobody ever sees a half-written drop.
+- Two-origin isolation. Control plane and serving plane run on separate hostnames in the same process, so uploaded HTML can't reach session cookies or upload routes.
+- Google OAuth gated by `ALLOWED_DOMAIN`. Outside collaborators go in the `allowed_emails` table; there's no admin UI.
+- Path hardening (NFC normalisation, no traversal, no control chars, no leading dots) and zip hardening (no symlinks, bomb-ratio rejection).
+- Background GC sweeps orphaned R2 prefixes — failed uploads, replaced versions.
+- One workspace per deploy. No multi-tenancy, no plans for any.
 
 ## How it works
 
@@ -99,9 +97,9 @@ One Fastify + TypeScript service per instance, host-routed:
 - **App origin** (`APP_ORIGIN`) — auth, uploads, dashboard.
 - **Content origin** (`CONTENT_ORIGIN`) — serves the published drops.
 
-Cookies are scoped per origin, so logging into the app doesn't grant anything on the content origin. To hand off a session across the gap, the app issues a short-lived HMAC token (`src/lib/handoff.ts`, payload `sessionId:exp`) and the content origin's bootstrap route verifies it and sets its own cookie. There is no shared cookie domain by design.
+Cookies are scoped per origin, so logging into the app doesn't grant anything on the content origin. To hand off a session across the gap, the app issues a short-lived HMAC token (`src/lib/handoff.ts`, payload `sessionId:exp`) and the content origin's bootstrap route verifies it and sets its own cookie. There is no shared cookie domain.
 
-Postgres holds metadata via Drizzle ORM. Cloudflare R2 holds files. Each upload writes to a fresh `drops/<versionId>/` prefix, then a single `UPDATE drops SET current_version = ...` flips readers over atomically. `src/services/gc.ts` + `scheduler.ts` sweep orphaned prefixes (versions that never became current, or previous versions after replacement). `startOrphanSweep()` is kicked off from `src/index.ts` on boot.
+Postgres holds metadata via Drizzle ORM. Cloudflare R2 holds files. Each upload writes to a fresh `drops/<versionId>/` prefix, then a single `UPDATE drops SET current_version = ...` flips readers over. `src/services/gc.ts` + `scheduler.ts` sweep orphaned prefixes (versions that never became current, or previous versions after replacement). `startOrphanSweep()` is kicked off from `src/index.ts` on boot.
 
 Routes are wired in `src/index.ts` against `onAppHost` / `onContentHost` plugin wrappers — that's the single place new routes get bound to a host.
 
