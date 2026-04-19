@@ -18,6 +18,7 @@ import { editDropRoute } from './routes/app/editDrop';
 import { deleteDropRoute } from './routes/app/deleteDrop';
 import { appStaticRoute } from './routes/app/static';
 import { rootRoute } from './routes/app/root';
+import { contentRootRoute } from './routes/content/root';
 import { contentServeRoute } from './routes/content/serve';
 import { startOrphanSweep } from './services/scheduler';
 
@@ -42,6 +43,7 @@ await app.register(onAppHost(async (s) => {
 
 await app.register(onContentHost(async (s) => {
   await registerContentSecurity(s);
+  await s.register(contentRootRoute);
   await s.register(bootstrapRoute);
   await s.register(contentLogoutRoute);
   await s.register(contentServeRoute);
