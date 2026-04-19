@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { requireContentSession } from '@/middleware/auth';
 import { findByUsername } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
+import { canView } from '@/services/permissions';
 import { getObject } from '@/lib/r2';
 import { sanitisePath } from '@/lib/path';
 import { config } from '@/config';
@@ -39,6 +40,11 @@ export const contentServeRoute: FastifyPluginAsync = async (app) => {
       if (!user) return reply.code(404).send('not_found');
       const drop = await findByOwnerAndName(user.id, dropname);
       if (!drop || !drop.version) return reply.code(404).send('not_found');
+      const allowed = await canView(
+        { id: req.user!.id, email: req.user!.email },
+        { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode },
+      );
+      if (!allowed) return reply.code(404).send('not_found');
       const prefix = drop.version.r2Prefix;
 
       let rest = splat;

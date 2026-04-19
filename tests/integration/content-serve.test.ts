@@ -138,4 +138,101 @@ describe('content serve', () => {
     });
     expect(second.statusCode).toBe(304);
   });
+
+  describe('canView matrix', () => {
+    async function seedOwnerAndDrop(mode: 'authed' | 'public' | 'emails') {
+      const { db } = await import('@/db');
+      const { users, drops, dropViewers, allowedEmails, sessions } = await import('@/db/schema');
+      const { putObject } = await import('@/lib/r2');
+      await db.delete(drops); await db.delete(sessions); await db.delete(users);
+      await db.delete(dropViewers); await db.delete(allowedEmails);
+      await db.insert(allowedEmails).values({ email: 'member@allowed.test' });
+      const [owner] = await db.insert(users).values({
+        email: 'owner@example.com', username: 'owner', kind: 'member',
+      }).returning();
+      const prefix = `drops/matrix-${mode}/`;
+      await putObject(prefix + 'index.html', Buffer.from(`<p>Hi from ${mode}</p>`));
+      const { createDropAndVersion } = await import('@/services/drops');
+      await createDropAndVersion(owner!.id, 's', { r2Prefix: prefix, byteSize: 10, fileCount: 1 });
+      const { setViewMode } = await import('@/services/permissions');
+      const { findByOwnerAndName } = await import('@/services/drops');
+      const drop = (await findByOwnerAndName(owner!.id, 's'))!;
+      await setViewMode(drop.id, mode);
+      return { owner: owner!, dropId: drop.id };
+    }
+
+    async function cookieFor(email: string, kind: 'member' | 'viewer') {
+      const { db } = await import('@/db');
+      const { users } = await import('@/db/schema');
+      const values = {
+        email,
+        username: kind === 'member' ? email.split('@')[0]! : null,
+        kind,
+      };
+      const [u] = await db.insert(users).values(values).returning();
+      const { createSession } = await import('@/services/sessions');
+      const sid = await createSession(u!.id);
+      const { signCookie } = await import('@/lib/cookies');
+      const { config } = await import('@/config');
+      return `drops_content_session=${signCookie(sid, config.SESSION_SECRET)}`;
+    }
+
+    it('authed mode: member sees 200, viewer sees 404', async () => {
+      await seedOwnerAndDrop('authed');
+      const memberCookie = await cookieFor('member@allowed.test', 'member');
+      const viewerCookie = await cookieFor('out@out.test', 'viewer');
+      const okRes = await appInstance.inject({
+        method: 'GET', url: '/owner/s/',
+        headers: { host: 'content.localtest.me', cookie: memberCookie },
+      });
+      expect(okRes.statusCode).toBe(200);
+      const deniedRes = await appInstance.inject({
+        method: 'GET', url: '/owner/s/',
+        headers: { host: 'content.localtest.me', cookie: viewerCookie },
+      });
+      expect(deniedRes.statusCode).toBe(404);
+    });
+
+    it('public mode: viewer sees 200', async () => {
+      await seedOwnerAndDrop('public');
+      const viewerCookie = await cookieFor('any@any.test', 'viewer');
+      const res = await appInstance.inject({
+        method: 'GET', url: '/owner/s/',
+        headers: { host: 'content.localtest.me', cookie: viewerCookie },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it('emails mode: listed viewer sees 200, unlisted sees 404', async () => {
+      const { dropId } = await seedOwnerAndDrop('emails');
+      const { addViewer } = await import('@/services/dropViewers');
+      await addViewer(dropId, 'listed@out.test');
+      const listedCookie = await cookieFor('listed@out.test', 'viewer');
+      const otherCookie = await cookieFor('stranger@out.test', 'viewer');
+      const okRes = await appInstance.inject({
+        method: 'GET', url: '/owner/s/',
+        headers: { host: 'content.localtest.me', cookie: listedCookie },
+      });
+      expect(okRes.statusCode).toBe(200);
+      const deniedRes = await appInstance.inject({
+        method: 'GET', url: '/owner/s/',
+        headers: { host: 'content.localtest.me', cookie: otherCookie },
+      });
+      expect(deniedRes.statusCode).toBe(404);
+    });
+
+    it('owner sees their own drop regardless of mode', async () => {
+      const { owner } = await seedOwnerAndDrop('emails');
+      const { createSession } = await import('@/services/sessions');
+      const sid = await createSession(owner.id);
+      const { signCookie } = await import('@/lib/cookies');
+      const { config } = await import('@/config');
+      const ownerCookie = `drops_content_session=${signCookie(sid, config.SESSION_SECRET)}`;
+      const res = await appInstance.inject({
+        method: 'GET', url: '/owner/s/',
+        headers: { host: 'content.localtest.me', cookie: ownerCookie },
+      });
+      expect(res.statusCode).toBe(200);
+    });
+  });
 });
