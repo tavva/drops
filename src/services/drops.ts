@@ -117,7 +117,7 @@ export async function listByOwner(ownerId: string): Promise<DropSummary[]> {
 }
 
 export interface DropListItem extends DropSummary {
-  ownerUsername: string;
+  ownerUsername: string | null;
 }
 
 export async function listAll(limit: number, offset: number): Promise<DropListItem[]> {

@@ -10,7 +10,7 @@ export const CONTENT_SESSION_COOKIE = 'drops_content_session';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: string; email: string; username: string; name: string | null; avatarUrl: string | null };
+    user?: { id: string; email: string; username: string | null; name: string | null; avatarUrl: string | null };
     session?: { id: string };
   }
 }
