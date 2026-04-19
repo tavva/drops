@@ -3,7 +3,10 @@ import { db } from '@/db';
 import { allowedEmails } from '@/db/schema';
 import { resetBucket } from '../helpers/r2';
 
-beforeAll(async () => { await resetBucket(); });
+beforeAll(async () => {
+  await resetBucket();
+  await db.insert(allowedEmails).values({ email: 'ben@ben-phillips.net' }).onConflictDoNothing();
+});
 
 describe('helpers', () => {
   it('talks to Postgres', async () => {
