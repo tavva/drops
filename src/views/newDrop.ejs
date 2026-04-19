@@ -9,7 +9,12 @@
   <body>
     <h1>New drop</h1>
     <form id="new-drop-form" data-csrf="<%= csrfToken %>">
-      <label>Name <input name="name" id="drop-name" pattern="^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" required></label>
+      <label for="drop-name">Name</label>
+      <input name="name" id="drop-name" pattern="^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" required
+        autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="url"
+        minlength="2" maxlength="32"
+        title="Lowercase letters, digits and hyphens. 2–32 characters. No spaces.">
+      <p class="hint">Used in the URL — lowercase letters, digits, and hyphens. No spaces. 2–32 characters.</p>
       <div id="drop-zone">
         <p>Drag a folder, a .zip, or any file here — or pick below.</p>
         <p class="pickers">

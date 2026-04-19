@@ -93,6 +93,23 @@
   filesInput?.addEventListener('change', () => handlePickedFiles(filesInput));
   folderInput?.addEventListener('change', () => handlePickedFiles(folderInput));
 
+  // Live-sanitise the drop name so users can't type spaces or other invalid characters.
+  nameInput?.addEventListener('input', () => {
+    const original = nameInput.value;
+    const cleaned = original
+      .toLowerCase()
+      .replace(/[\s_]+/g, '-')
+      .replace(/[^a-z0-9-]+/g, '')
+      .replace(/-{2,}/g, '-')
+      .slice(0, 32);
+    if (cleaned !== original) {
+      const pos = nameInput.selectionStart ?? cleaned.length;
+      nameInput.value = cleaned;
+      const newPos = Math.min(pos, cleaned.length);
+      nameInput.setSelectionRange(newPos, newPos);
+    }
+  });
+
   form.addEventListener('submit', (e) => {
     e.preventDefault();
     setErr('');
