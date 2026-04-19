@@ -79,4 +79,21 @@ describe('requireAppSession', () => {
     const [row] = await db.select().from(sessions).where(eq(sessions.id, sid));
     expect(row!.expiresAt.getTime()).toBeGreaterThan(Date.now() + SESSION_TTL_SECONDS * 1000 - 10_000);
   });
+
+  it('rejects viewer sessions, clears app cookie, and redirects to login', async () => {
+    const [v] = await db.insert(users).values({
+      email: 'v@out.test', kind: 'viewer',
+    }).returning();
+    const sid = await createSession(v!.id);
+    const signed = signCookie(sid, config.SESSION_SECRET);
+    const res = await appInstance.inject({
+      method: 'GET', url: '/app/secure',
+      headers: { host: 'drops.localtest.me', cookie: cookieHeader(APP_SESSION_COOKIE, signed) },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toContain('/auth/login');
+    const setCookie = res.headers['set-cookie'];
+    const setCookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+    expect(setCookies.some((c) => c.startsWith(`${APP_SESSION_COOKIE}=;`))).toBe(true);
+  });
 });

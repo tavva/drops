@@ -10,7 +10,7 @@ export const CONTENT_SESSION_COOKIE = 'drops_content_session';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: string; email: string; username: string | null; name: string | null; avatarUrl: string | null };
+    user?: { id: string; email: string; username: string | null; name: string | null; avatarUrl: string | null; kind: 'member' | 'viewer' };
     session?: { id: string };
   }
 }
@@ -43,6 +43,7 @@ async function loadFromCookie(
       username: found.user.username,
       name: found.user.name,
       avatarUrl: found.user.avatarUrl,
+      kind: (found.user.kind as 'member' | 'viewer'),
     },
   };
 }
@@ -50,6 +51,10 @@ async function loadFromCookie(
 export async function requireAppSession(req: FastifyRequest, reply: FastifyReply) {
   const found = await loadFromCookie(req, APP_SESSION_COOKIE);
   if (!found) {
+    reply.clearCookie(APP_SESSION_COOKIE, appCookieOptions());
+    return loginRedirect(reply, currentUrl(req, config.APP_ORIGIN));
+  }
+  if (found.user.kind !== 'member') {
     reply.clearCookie(APP_SESSION_COOKIE, appCookieOptions());
     return loginRedirect(reply, currentUrl(req, config.APP_ORIGIN));
   }
