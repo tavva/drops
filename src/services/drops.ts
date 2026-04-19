@@ -4,6 +4,7 @@
 import { eq, and, sql, desc } from 'drizzle-orm';
 import { db } from '@/db';
 import { drops, dropVersions, users } from '@/db/schema';
+import type { ViewMode } from '@/services/permissions';
 
 export class DropConflictError extends Error {
   constructor() {
@@ -22,6 +23,7 @@ export interface DropSummary {
   id: string;
   name: string;
   ownerId: string;
+  viewMode: ViewMode;
   currentVersion: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -153,6 +155,7 @@ function toSummary(
     id: d.id,
     name: d.name,
     ownerId: d.ownerId,
+    viewMode: d.viewMode as ViewMode,
     currentVersion: d.currentVersion,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,

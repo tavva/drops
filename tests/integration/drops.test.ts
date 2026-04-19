@@ -91,4 +91,10 @@ describe('drops service', () => {
     const versions = await db.select().from(dropVersions);
     expect(versions.length).toBe(0);
   });
+
+  it('summary includes viewMode (default authed)', async () => {
+    await createDropAndVersion(ownerA, 'vm', { r2Prefix: 'drops/vm/', byteSize: 1, fileCount: 1 });
+    const s = await findByOwnerAndName(ownerA, 'vm');
+    expect(s!.viewMode).toBe('authed');
+  });
 });
