@@ -2,52 +2,149 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
     <title>Drops — <%= user.username %></title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
     <link rel="stylesheet" href="/app/static/style.css">
   </head>
-  <body>
-    <header>
-      <h1>Drops</h1>
-      <p>Signed in as <strong><%= user.username %></strong></p>
-      <form method="post" action="/auth/logout">
-        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-        <button type="submit">Sign out</button>
-      </form>
-      <p><a href="/app/drops/new">New drop</a></p>
+  <body class="app-viewport">
+    <header class="app-header">
+      <div class="app-wordmark">
+        <svg class="drop" viewBox="0 0 24 32" aria-hidden="true">
+          <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
+          <ellipse class="hl" cx="8.5" cy="18" rx="2.2" ry="3"/>
+        </svg>
+        <span>drops</span>
+      </div>
+      <div class="app-header-right">
+        <div class="user-menu" title="<%= user.email %>">
+          <span class="avatar"><%= user.username.charAt(0).toUpperCase() %></span>
+          <span><%= user.username %></span>
+        </div>
+        <form class="logout-form" method="post" action="/auth/logout">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <button class="logout-btn" type="submit">Sign out</button>
+        </form>
+      </div>
     </header>
 
-    <section>
-      <h2>Your drops</h2>
-      <% if (yourDrops.length === 0) { %>
-        <p>You have no drops yet. <a href="/app/drops/new">Create one</a>.</p>
-      <% } else { %>
-        <ul>
-          <% yourDrops.forEach(function(d) { %>
-            <li>
-              <a href="/app/drops/<%= d.name %>"><%= d.name %></a>
-              — <a href="<%= contentOrigin %>/<%= user.username %>/<%= d.name %>/">view</a>
-              <% if (d.version) { %>
-                (<%= d.version.fileCount %> files, <%= d.version.byteSize %> bytes)
-              <% } %>
-            </li>
-          <% }) %>
-        </ul>
-      <% } %>
-    </section>
+    <div class="app-main">
+      <div class="page-head">
+        <h1>Drops</h1>
+        <div class="actions">
+          <a class="btn primary" href="/app/drops/new"><span class="plus">＋</span> New drop</a>
+        </div>
+      </div>
 
-    <section>
-      <h2>All drops</h2>
-      <% if (allDrops.length === 0) { %>
-        <p>No drops yet.</p>
-      <% } else { %>
-        <ul>
-          <% allDrops.forEach(function(d) { %>
-            <li>
-              <a href="<%= contentOrigin %>/<%= d.ownerUsername %>/<%= d.name %>/"><%= d.ownerUsername %>/<%= d.name %></a>
-            </li>
-          <% }) %>
-        </ul>
+      <div class="card">
+        <div class="section-head">
+          <h2>Yours</h2>
+          <span class="count"><%= yourDrops.length %></span>
+          <div class="spacer"></div>
+        </div>
+
+        <% if (yourDrops.length === 0) { %>
+          <div class="empty">
+            <div class="big-drop">
+              <svg viewBox="0 0 24 32" aria-hidden="true">
+                <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
+              </svg>
+            </div>
+            <h3>You have no drops yet</h3>
+            <p><a href="/app/drops/new">Upload something</a> to get started.</p>
+          </div>
+        <% } else { %>
+          <table class="drops-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>URL</th>
+                <th>Files</th>
+                <th>Size</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <% yourDrops.forEach(function(d) { %>
+                <tr>
+                  <td>
+                    <div class="drop-name">
+                      <svg class="tiny-drop" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/></svg>
+                      <a href="/app/drops/<%= d.name %>"><span><%= d.name %></span></a>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="drop-url">
+                      <span class="host"><%= new URL(contentOrigin).host %>/</span><span class="path"><%= user.username %>/<%= d.name %>/</span>
+                    </span>
+                  </td>
+                  <td class="meta-col"><%= d.version ? d.version.fileCount : '—' %></td>
+                  <td>
+                    <% if (d.version) { %>
+                      <span class="size-bar">
+                        <span class="track"><span class="fill" style="width: <%= Math.min(100, (d.version.byteSize / (100 * 1024 * 1024)) * 100) %>%"></span></span>
+                        <%= d.version.byteSize %> B
+                      </span>
+                    <% } else { %>
+                      <span class="meta-col">—</span>
+                    <% } %>
+                  </td>
+                  <td>
+                    <div class="row-actions">
+                      <a class="icon-btn" href="<%= contentOrigin %>/<%= user.username %>/<%= d.name %>/" title="open" target="_blank" rel="noreferrer">↗</a>
+                      <a class="icon-btn" href="/app/drops/<%= d.name %>" title="edit">✎</a>
+                    </div>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        <% } %>
+      </div>
+
+      <% if (allDrops.length > 0) { %>
+        <div class="card" style="margin-top: 24px;">
+          <div class="section-head">
+            <h2>Everyone's drops</h2>
+            <span class="count"><%= allDrops.length %></span>
+          </div>
+          <table class="drops-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>URL</th>
+                <th>Owner</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% allDrops.forEach(function(d) { %>
+                <tr>
+                  <td>
+                    <div class="drop-name">
+                      <svg class="tiny-drop" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/></svg>
+                      <a href="<%= contentOrigin %>/<%= d.ownerUsername %>/<%= d.name %>/" target="_blank" rel="noreferrer"><span><%= d.name %></span></a>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="drop-url">
+                      <span class="host"><%= new URL(contentOrigin).host %>/</span><span class="path"><%= d.ownerUsername %>/<%= d.name %>/</span>
+                    </span>
+                  </td>
+                  <td>
+                    <span class="owner-pill">
+                      <span class="av"><%= d.ownerUsername.charAt(0).toUpperCase() %></span>
+                      <%= d.ownerUsername %>
+                    </span>
+                  </td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+        </div>
       <% } %>
-    </section>
+    </div>
   </body>
 </html>

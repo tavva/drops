@@ -3,17 +3,68 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <title>Choose a username</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Choose a username — drops</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
     <link rel="stylesheet" href="/app/static/style.css">
   </head>
   <body>
-    <h1>Welcome, <%= email %></h1>
-    <% if (error) { %><p class="error" id="error"><%= error %></p><% } %>
-    <form method="post" action="/auth/choose-username">
-      <label>Username <input name="username" value="<%= suggested %>" pattern="^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" required></label>
-      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-      <input type="hidden" name="next" value="<%= next %>">
-      <button type="submit">Continue</button>
-    </form>
+    <div class="auth-wrap">
+      <div class="auth-card uname-card">
+        <div class="auth-logo">
+          <svg viewBox="0 0 24 32" aria-hidden="true">
+            <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
+            <ellipse class="hl" cx="8.5" cy="18" rx="2.2" ry="3"/>
+          </svg>
+        </div>
+        <h1>Choose a username</h1>
+        <p class="deck">Used in every drop URL. Permanent.</p>
+
+        <div class="preview">
+          <span class="host"><%= new URL(contentOrigin).host %>/</span><span class="u" id="uname-preview"><%= suggested || 'you' %></span><span class="dim">/</span><span class="d">my-first-drop</span><span class="dim">/</span>
+        </div>
+
+        <% if (error) { %><p class="error" id="error"><%= error %></p><% } %>
+
+        <form method="post" action="/auth/choose-username">
+          <div class="field">
+            <label for="uname-input">Username</label>
+            <div class="input-wrap">
+              <span class="prefix"><%= new URL(contentOrigin).host %>/</span>
+              <input id="uname-input" name="username" value="<%= suggested %>"
+                pattern="^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" required
+                autocomplete="off" spellcheck="false"
+                autocapitalize="off" autocorrect="off"
+                minlength="2" maxlength="32">
+              <span class="suffix">/</span>
+            </div>
+            <p class="hint">2–32 characters. Lowercase letters, digits and hyphens.</p>
+          </div>
+
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input type="hidden" name="next" value="<%= next %>">
+
+          <div class="actions">
+            <button class="btn primary" type="submit">Continue →</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      (() => {
+        const input = document.getElementById('uname-input');
+        const preview = document.getElementById('uname-preview');
+        if (!input || !preview) return;
+        input.addEventListener('input', () => {
+          const cleaned = input.value.toLowerCase().replace(/[^a-z0-9-]+/g, '').slice(0, 32);
+          if (cleaned !== input.value) input.value = cleaned;
+          preview.textContent = cleaned || 'you';
+        });
+      })();
+    </script>
   </body>
 </html>
