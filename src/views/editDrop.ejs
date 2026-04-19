@@ -53,7 +53,7 @@
             <% if (drop.version) { %>
               <dl class="version-kv">
                 <dt>Files</dt><dd><%= drop.version.fileCount %> files</dd>
-                <dt>Size</dt><dd><%= drop.version.byteSize %> bytes</dd>
+                <dt>Size</dt><dd><%= formatBytes(drop.version.byteSize) %></dd>
                 <dt>Version</dt><dd class="v-mono"><%= drop.version.id %></dd>
               </dl>
             <% } else { %>

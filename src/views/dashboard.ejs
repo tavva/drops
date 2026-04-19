@@ -86,7 +86,7 @@
                     <% if (d.version) { %>
                       <span class="size-bar">
                         <span class="track"><span class="fill" style="width: <%= Math.min(100, (d.version.byteSize / (100 * 1024 * 1024)) * 100) %>%"></span></span>
-                        <%= d.version.byteSize %> B
+                        <%= formatBytes(d.version.byteSize) %>
                       </span>
                     <% } else { %>
                       <span class="meta-col">—</span>

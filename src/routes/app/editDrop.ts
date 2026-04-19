@@ -4,6 +4,7 @@ import { requireAppSession } from '@/middleware/auth';
 import { findByOwnerAndName } from '@/services/drops';
 import { isValidSlug } from '@/lib/slug';
 import { config } from '@/config';
+import { formatBytes } from '@/lib/format';
 
 export const editDropRoute: FastifyPluginAsync = async (app) => {
   app.get('/app/drops/:name', { preHandler: requireAppSession }, async (req, reply) => {
@@ -16,6 +17,7 @@ export const editDropRoute: FastifyPluginAsync = async (app) => {
       drop,
       csrfToken: req.csrfToken ?? '',
       contentUrl: new URL(`/${user.username}/${name}/`, config.CONTENT_ORIGIN).toString(),
+      formatBytes,
     });
   });
 };
