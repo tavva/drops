@@ -103,4 +103,26 @@ describe('edit + delete drop', () => {
     await new Promise((r) => setTimeout(r, 200));
     expect(await listPrefix(prefix)).toEqual([]);
   });
+
+  it('edit page renders viewer list when mode is emails', async () => {
+    const { db } = await import('@/db');
+    const { drops, dropViewers } = await import('@/db/schema');
+    const { eq } = await import('drizzle-orm');
+    const { createDropAndVersion } = await import('@/services/drops');
+    await createDropAndVersion(aliceId, 'withlist', { r2Prefix: 'drops/wl/', byteSize: 1, fileCount: 1 });
+    const [row] = await db.select().from(drops).where(eq(drops.ownerId, aliceId));
+    await db.update(drops).set({ viewMode: 'emails' }).where(eq(drops.id, row!.id));
+    await db.insert(dropViewers).values([
+      { dropId: row!.id, email: 'one@out.test' },
+      { dropId: row!.id, email: 'two@out.test' },
+    ]);
+    const res = await appInstance.inject({
+      method: 'GET', url: '/app/drops/withlist',
+      headers: { host: 'drops.localtest.me', cookie: aliceCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('one@out.test');
+    expect(res.body).toContain('two@out.test');
+    expect(res.body).toContain('Who can view');
+  });
 });
