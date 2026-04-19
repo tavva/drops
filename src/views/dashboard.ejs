@@ -74,6 +74,8 @@
                     <div class="drop-name">
                       <svg class="tiny-drop" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/></svg>
                       <a href="/app/drops/<%= d.name %>"><span><%= d.name %></span></a>
+                      <% if (d.viewMode === 'public') { %><span class="tag">public</span>
+                      <% } else if (d.viewMode === 'emails') { %><span class="tag">list</span><% } %>
                     </div>
                   </td>
                   <td>
