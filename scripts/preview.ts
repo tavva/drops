@@ -5,6 +5,7 @@ import view from '@fastify/view';
 import fastifyStatic from '@fastify/static';
 import ejs from 'ejs';
 import { resolve } from 'node:path';
+import { formatBytes } from '../src/lib/format';
 
 const APP_ORIGIN = 'http://drops.localtest.me:4000';
 const CONTENT_ORIGIN = 'http://content.localtest.me:4000';
@@ -85,6 +86,7 @@ app.get('/dashboard', (_req, reply) =>
     allDrops: sampleAll,
     contentOrigin: CONTENT_ORIGIN,
     csrfToken: 'preview',
+    formatBytes,
   }));
 
 app.get('/dashboard/empty', (_req, reply) =>
@@ -94,6 +96,7 @@ app.get('/dashboard/empty', (_req, reply) =>
     allDrops: [],
     contentOrigin: CONTENT_ORIGIN,
     csrfToken: 'preview',
+    formatBytes,
   }));
 
 app.get('/new-drop', (_req, reply) =>
@@ -104,6 +107,7 @@ app.get('/edit-drop', (_req, reply) =>
     drop: { name: 'tidepools', version: { id: '0198f3c2-2a7b-72d0-9d4f-1fc01b2e', fileCount: 47, byteSize: 18_400_000 } },
     csrfToken: 'preview',
     contentUrl: `${CONTENT_ORIGIN}/ben/tidepools/`,
+    formatBytes,
   }));
 
 app.get('/edit-drop/empty', (_req, reply) =>
@@ -111,6 +115,7 @@ app.get('/edit-drop/empty', (_req, reply) =>
     drop: { name: 'draft', version: null },
     csrfToken: 'preview',
     contentUrl: `${CONTENT_ORIGIN}/ben/draft/`,
+    formatBytes,
   }));
 
 const port = Number(process.env.PORT ?? 4000);

@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { requireAppSession } from '@/middleware/auth';
 import { listByOwner, listAll } from '@/services/drops';
 import { config } from '@/config';
+import { formatBytes } from '@/lib/format';
 
 export const dashboardRoute: FastifyPluginAsync = async (app) => {
   app.get('/app', { preHandler: requireAppSession }, async (req, reply) => {
@@ -17,6 +18,7 @@ export const dashboardRoute: FastifyPluginAsync = async (app) => {
       allDrops,
       contentOrigin: config.CONTENT_ORIGIN,
       csrfToken: req.csrfToken ?? '',
+      formatBytes,
     });
   });
 };
