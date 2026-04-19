@@ -23,10 +23,6 @@
         <h1>Choose a username</h1>
         <p class="deck">Used in every drop URL. Permanent.</p>
 
-        <div class="preview">
-          <span class="host"><%= new URL(contentOrigin).host %>/</span><span class="u" id="uname-preview"><%= suggested || 'you' %></span><span class="dim">/</span><span class="d">my-first-drop</span><span class="dim">/</span>
-        </div>
-
         <% if (error) { %><p class="error" id="error"><%= error %></p><% } %>
 
         <form method="post" action="/auth/choose-username">
@@ -57,12 +53,10 @@
     <script>
       (() => {
         const input = document.getElementById('uname-input');
-        const preview = document.getElementById('uname-preview');
-        if (!input || !preview) return;
+        if (!input) return;
         input.addEventListener('input', () => {
           const cleaned = input.value.toLowerCase().replace(/[^a-z0-9-]+/g, '').slice(0, 32);
           if (cleaned !== input.value) input.value = cleaned;
-          preview.textContent = cleaned || 'you';
         });
       })();
     </script>

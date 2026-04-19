@@ -327,26 +327,6 @@ code, kbd, .mono { font-family: var(--font-mono); }
   margin-top: 18px;
 }
 
-/* Choose username */
-.uname-card .preview {
-  margin: 10px 0 18px;
-  display: flex; align-items: center; gap: 0;
-  padding: 14px 16px;
-  background: var(--bg-0);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  font-family: var(--font-mono); font-size: 12px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-align: left;
-  mask-image: linear-gradient(90deg, #000 0, #000 88%, transparent 100%);
-  -webkit-mask-image: linear-gradient(90deg, #000 0, #000 88%, transparent 100%);
-}
-.uname-card .preview .host { color: var(--ink-4); }
-.uname-card .preview .u { color: var(--accent); font-weight: 600; }
-.uname-card .preview .d { color: var(--ink-2); }
-.uname-card .preview .dim { color: var(--ink-5); }
-
 /* Form fields */
 .field { text-align: left; margin-bottom: 14px; }
 .field > label {
