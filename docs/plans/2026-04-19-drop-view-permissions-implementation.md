@@ -1032,7 +1032,11 @@ it('GET with a member app-session and null username renders the form', async () 
     headers: { host: 'drops.localtest.me', cookie },
   });
   expect(res.statusCode).toBe(200);
-  expect(res.body).toContain('promoted@example.com');
+  // Redesigned chooseUsername.ejs does not print the email anywhere. It renders
+  // the suggested slug in the input value and in the URL preview span.
+  // suggestSlug('promoted@example.com') === 'promoted'.
+  expect(res.body).toContain('value="promoted"');
+  expect(res.body).toContain('id="uname-preview"');
 });
 
 it('POST with app-session updates the existing user\'s username', async () => {
@@ -1141,14 +1145,14 @@ async function loadContext(req: FastifyRequest):
 }
 ```
 
-`GET` renders the same view with email + suggested slug. `POST` dispatches on mode:
+`GET` renders the same view with the suggested slug populated for the URL preview and the `username` input. `POST` dispatches on mode:
 
 - `pending`: existing code path, ending in `createUser({...kind:'member'})` then session + handoff.
 - `existing`: verify CSRF against `sessionId`, validate username, call `setUsername(user.id, username)`, then handoff exactly like the pending path (minus consumePendingLogin / session creation — session already exists).
 
 Update `suggestSlug` call to work on `user.email` for the existing path.
 
-**Fix pre-existing CSRF rerender bug.** The current `rerender` helper in `chooseUsername.ts:71` reissues a token in the view but does *not* set it as the cookie. Since `registerCsrf`'s POST branch compares cookie to form token for exact equality, the resubmitted form would fail `bad_csrf`. Fix it at the same time — pattern:
+**Fix pre-existing CSRF rerender bug.** The current `rerender` helper in `chooseUsername.ts:72` reissues a token in the view but does *not* set it as the cookie. Since `registerCsrf`'s POST branch compares cookie to form token for exact equality, the resubmitted form would fail `bad_csrf`. Fix it at the same time — pattern (note: `chooseUsername.ejs` was redesigned and the view now reads `contentOrigin` to render the URL preview, so every render call must include that local):
 
 ```ts
 const rerender = (ctx: string, error: string) => {
@@ -1160,6 +1164,7 @@ const rerender = (ctx: string, error: string) => {
     next,
     csrfToken: token,
     error,
+    contentOrigin: config.CONTENT_ORIGIN,
   });
 };
 ```
@@ -1593,7 +1598,7 @@ git commit -m "feat(content): minimal / landing route"
 In `tests/integration/dashboard.test.ts`, add:
 
 ```ts
-it('All drops filters out emails-mode drops the viewer is not listed on, but keeps public ones', async () => {
+it('"Everyone\'s drops" filters out emails-mode drops the viewer is not listed on, but keeps public ones', async () => {
   const { db } = await import('@/db');
   const { users, drops, dropViewers, allowedEmails } = await import('@/db/schema');
   await db.delete(drops); await db.delete(users);
@@ -1629,9 +1634,12 @@ it('All drops filters out emails-mode drops the viewer is not listed on, but kee
     headers: { host: 'drops.localtest.me', cookie },
   });
   expect(res.statusCode).toBe(200);
-  expect(res.body).toContain('bob/public');
-  expect(res.body).not.toContain('carol/private');
-  expect(res.body).toContain('own');
+  // Rendered markup is a <table class="drops-table">; drop names appear verbatim in <span> tags.
+  expect(res.body).toContain('>public<');
+  expect(res.body).toContain('>own<');
+  expect(res.body).not.toContain('>private<');
+  // Redesigned section heading.
+  expect(res.body).toContain("Everyone's drops");
 });
 ```
 
@@ -1696,19 +1704,31 @@ Remove the old `listAll` once every caller moves to `listAllVisible`. Grep: `gre
 
 **Step 4: Update dashboard view for badges**
 
-`src/views/dashboard.ejs` — render badge next to each item in "Your drops":
+The dashboard was redesigned into a dark-themed `<table class="drops-table">` (`src/views/dashboard.ejs`). Add a small `.tag` next to the drop name in the "Yours" table's name column. The pattern mirrors the existing `.tag.live` on `editDrop.ejs`.
 
-```html
-<% yourDrops.forEach(function(d) { %>
-  <li>
-    <a href="/app/drops/<%= d.name %>"><%= d.name %></a>
-    <% if (d.viewMode === 'public') { %><span class="badge">public</span>
-    <% } else if (d.viewMode === 'emails') { %><span class="badge">list</span><% } %>
-    — <a href="<%= contentOrigin %>/<%= user.username %>/<%= d.name %>/">view</a>
-    <% if (d.version) { %>(<%= d.version.fileCount %> files, <%= d.version.byteSize %> bytes)<% } %>
-  </li>
-<% }) %>
+Inside the `yourDrops.forEach` row, change the `.drop-name` cell from:
+
+```ejs
+<div class="drop-name">
+  <svg class="tiny-drop" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/></svg>
+  <a href="/app/drops/<%= d.name %>"><span><%= d.name %></span></a>
+</div>
 ```
+
+to:
+
+```ejs
+<div class="drop-name">
+  <svg class="tiny-drop" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/></svg>
+  <a href="/app/drops/<%= d.name %>"><span><%= d.name %></span></a>
+  <% if (d.viewMode === 'public') { %><span class="tag">public</span>
+  <% } else if (d.viewMode === 'emails') { %><span class="tag">list</span><% } %>
+</div>
+```
+
+Do *not* add badges in the "Everyone's drops" table — surfacing "this drop is restricted to a list" to non-owners is unnecessary signal. Just keep the filter (only shows drops the viewer can see).
+
+No new CSS required — `.tag` already exists in `style.css`.
 
 **Step 5: Run**
 
@@ -2283,7 +2303,7 @@ git commit -m "feat(app): add/remove viewers routes"
 **Step 1: Append a test to `tests/integration/edit-delete.test.ts`**
 
 ```ts
-it('edit page renders viewer table when mode is emails', async () => {
+it('edit page renders viewer list when mode is emails', async () => {
   const { db } = await import('@/db');
   const { drops, dropViewers } = await import('@/db/schema');
   const { eq } = await import('drizzle-orm');
@@ -2325,44 +2345,115 @@ export const editDropRoute: FastifyPluginAsync = async (app) => {
 };
 ```
 
-**Step 3: Update editDrop.ejs**
+**Step 3: Update `editDrop.ejs`**
 
-Add, after "Replace contents":
+`editDrop.ejs` was redesigned into a two-column grid (`.edit-grid`: left main column with the version + upload cards, right sidebar with the danger/delete card). Add the permissions card as a new `.card` in the main column, directly after the `#new-drop-form` card and before the grid's closing `</div>`. That keeps "Replace contents" above "Who can view" and leaves the sidebar untouched.
+
+Insert this block between `<form id="new-drop-form" class="card" ...> ... </form>` and the enclosing `</div>` that closes the main column:
 
 ```ejs
-<h2>Who can view</h2>
-<form method="post" action="/app/drops/<%= drop.name %>/permissions">
-  <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-  <label><input type="radio" name="mode" value="authed" <%= drop.viewMode === 'authed' ? 'checked' : '' %>> Any member (default)</label>
-  <label><input type="radio" name="mode" value="public" <%= drop.viewMode === 'public' ? 'checked' : '' %>> Public — any Google sign-in</label>
-  <label><input type="radio" name="mode" value="emails" <%= drop.viewMode === 'emails' ? 'checked' : '' %>> Only specific email addresses</label>
-  <button type="submit">Save</button>
-</form>
+<div class="card mt-16" style="padding: 18px 20px;">
+  <div class="section-head">
+    <h2>Who can view</h2>
+    <div class="spacer"></div>
+    <% if (drop.viewMode === 'public') { %><span class="tag">public</span>
+    <% } else if (drop.viewMode === 'emails') { %><span class="tag">list</span>
+    <% } else { %><span class="tag">members</span><% } %>
+  </div>
 
-<% if (drop.viewMode === 'emails') { %>
-  <h3>Permitted viewers</h3>
-  <% if (viewerError) { %><p class="error"><%= viewerError %></p><% } %>
-  <form method="post" action="/app/drops/<%= drop.name %>/viewers">
+  <form method="post" action="/app/drops/<%= drop.name %>/permissions" class="permissions-form">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-    <label>Add email <input type="email" name="email" required></label>
-    <button type="submit">Add</button>
+    <label class="perm-choice">
+      <input type="radio" name="mode" value="authed" <%= drop.viewMode === 'authed' ? 'checked' : '' %>>
+      <span class="perm-label">
+        <strong>Any member</strong>
+        <span class="hint">Default. Anyone who can sign in to this instance.</span>
+      </span>
+    </label>
+    <label class="perm-choice">
+      <input type="radio" name="mode" value="public" <%= drop.viewMode === 'public' ? 'checked' : '' %>>
+      <span class="perm-label">
+        <strong>Public</strong>
+        <span class="hint">Any Google account. No allowlist check.</span>
+      </span>
+    </label>
+    <label class="perm-choice">
+      <input type="radio" name="mode" value="emails" <%= drop.viewMode === 'emails' ? 'checked' : '' %>>
+      <span class="perm-label">
+        <strong>Specific people</strong>
+        <span class="hint">Only the email addresses you list below.</span>
+      </span>
+    </label>
+    <div class="newdrop-actions">
+      <button class="btn primary sm" type="submit">Save</button>
+    </div>
   </form>
-  <% if (viewers.length === 0) { %>
-    <p>No viewers yet — only you can see this drop.</p>
-  <% } else { %>
-    <ul>
-      <% viewers.forEach(function(v) { %>
-        <li>
-          <%= v.email %>
-          <form method="post" action="/app/drops/<%= drop.name %>/viewers/<%= encodeURIComponent(v.email) %>/delete" style="display:inline">
-            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-            <button type="submit">Remove</button>
-          </form>
-        </li>
-      <% }) %>
-    </ul>
+
+  <% if (drop.viewMode === 'emails') { %>
+    <div class="divider"></div>
+    <h3 style="font-size: 14px; margin-bottom: 10px;">Permitted viewers</h3>
+
+    <% if (viewerError) { %>
+      <p class="hint err" id="viewer-error"><%= viewerError %></p>
+    <% } %>
+
+    <form method="post" action="/app/drops/<%= drop.name %>/viewers" class="viewer-add">
+      <div class="field">
+        <div class="input-wrap">
+          <input type="email" name="email" required autocomplete="off"
+                 spellcheck="false" placeholder="name@example.com">
+        </div>
+      </div>
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+      <button class="btn sm" type="submit">Add</button>
+    </form>
+
+    <% if (viewers.length === 0) { %>
+      <p class="hint">No viewers yet — only you can see this drop.</p>
+    <% } else { %>
+      <ul class="viewer-list">
+        <% viewers.forEach(function(v) { %>
+          <li>
+            <span class="email"><%= v.email %></span>
+            <form method="post"
+                  action="/app/drops/<%= drop.name %>/viewers/<%= encodeURIComponent(v.email) %>/delete">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+              <button class="btn ghost sm" type="submit" title="remove">✕</button>
+            </form>
+          </li>
+        <% }) %>
+      </ul>
+    <% } %>
   <% } %>
-<% } %>
+</div>
+```
+
+All classes referenced here already exist in `style.css` except the three new ones (`.permissions-form`, `.perm-choice .perm-label`, `.viewer-add`, `.viewer-list`). Add this block to `src/views/static/style.css` under an `/* Edit drop */` comment — styling is deliberately minimal and reuses the existing design tokens:
+
+```css
+.permissions-form .perm-choice {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  margin-bottom: 8px; cursor: pointer;
+}
+.permissions-form .perm-choice:has(input:checked) {
+  border-color: color-mix(in oklch, var(--accent) 40%, var(--line));
+  background: color-mix(in oklch, var(--accent) 5%, transparent);
+}
+.permissions-form .perm-label { display: grid; gap: 2px; }
+.permissions-form .perm-label strong { font-weight: 600; color: var(--ink-1); font-size: 13.5px; }
+
+.viewer-add { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 12px; }
+.viewer-add .field { margin: 0; flex: 1; }
+
+.viewer-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 4px; }
+.viewer-list li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--bg-0); font-family: var(--font-mono); font-size: 12.5px;
+}
+.viewer-list li .email { flex: 1; color: var(--ink-1); word-break: break-all; }
+.viewer-list li form { margin: 0; }
 ```
 
 **Step 4: Run**

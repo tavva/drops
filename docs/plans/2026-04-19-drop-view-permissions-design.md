@@ -186,7 +186,7 @@ New "Who can view" section (only the owner sees this page; ownership is enforced
 
 - Radio group (`authed` / `public` / `emails`) posting to `POST /app/drops/:name/permissions`
 - Viewer list block, server-rendered only when `mode = 'emails'`:
-  - Table of existing emails; each row is a tiny form posting to `POST /app/drops/:name/viewers/:email/delete`
+  - Bulleted list of existing emails; each item has a small remove button posting to `POST /app/drops/:name/viewers/:email/delete`
   - Input + "Add" button posting to `POST /app/drops/:name/viewers`
 
 The viewer-list block is server-rendered on mode-flip (form submit + full reload). No client-side JS toggling.
