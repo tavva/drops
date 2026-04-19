@@ -47,7 +47,9 @@
               <% } %>
             </div>
             <div class="link-row">
-              <span class="host"><%= new URL(contentUrl).origin %>/</span><span class="path"><%= new URL(contentUrl).pathname.replace(/^\//, '') %></span>
+              <span class="drop-url">
+                <span class="host"><%= new URL(contentUrl).origin %>/</span><span class="path"><%= new URL(contentUrl).pathname.replace(/^\//, '') %></span>
+              </span>
               <div class="spacer"></div>
               <a href="<%= contentUrl %>" target="_blank" rel="noreferrer">open ↗</a>
             </div>
