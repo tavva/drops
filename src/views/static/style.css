@@ -3,7 +3,9 @@ a { color: #06b; }
 #drop-zone { border: 2px dashed #888; border-radius: 0.5rem; padding: 2rem; text-align: center; margin: 1rem 0; }
 .error { color: #b30; }
 button { padding: 0.5rem 1rem; font-size: 1rem; }
-input[type=text], input[type=email], input[name=username] { padding: 0.4rem; font-size: 1rem; }
+input[type=text], input[type=email], input[name=username], input[name=name] { padding: 0.4rem; font-size: 1rem; }
+.hint { color: #666; font-size: 0.9rem; margin: 0.25rem 0 1rem; }
+input:invalid { border-color: #b30; }
 ul { line-height: 1.8; }
 .pickers { display: flex; gap: 2rem; justify-content: center; flex-wrap: wrap; }
 .picker { display: inline-flex; gap: 0.5rem; align-items: center; }
