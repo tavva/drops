@@ -22,7 +22,9 @@ afterAll(async () => { await appInstance.close(); });
 
 beforeEach(async () => {
   const { db } = await import('@/db');
-  const { users, sessions, pendingLogins, allowedEmails } = await import('@/db/schema');
+  const { users, sessions, pendingLogins, allowedEmails, drops, dropViewers } = await import('@/db/schema');
+  await db.delete(dropViewers);
+  await db.delete(drops);
   await db.delete(sessions);
   await db.delete(users);
   await db.delete(pendingLogins);
@@ -112,5 +114,113 @@ describe('GET /auth/callback', () => {
     expect(loc).toContain('/auth/choose-username');
     const setCookies = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
     expect(setCookies.some((c) => c.startsWith('pending_login='))).toBe(true);
+  });
+
+  it('admits brand-new viewer (on email list) with no username, no app cookie', async () => {
+    const { db } = await import('@/db');
+    const { users, drops, dropViewers } = await import('@/db/schema');
+    await db.delete(drops); await db.delete(users); await db.delete(dropViewers);
+    const [owner] = await db.insert(users).values({
+      email: 'own@example.com', username: 'own', kind: 'member',
+    }).returning();
+    const [d] = await db.insert(drops).values({
+      ownerId: owner!.id, name: 's', viewMode: 'emails',
+    }).returning();
+    await db.insert(dropViewers).values({ dropId: d!.id, email: 'visitor@outside.test' });
+    exchangeCodeMock.mockResolvedValueOnce({
+      email: 'visitor@outside.test', emailVerified: true, name: null, avatarUrl: null,
+    });
+    const res = await appInstance.inject({
+      method: 'GET', url: '/auth/callback?code=abc&state=s',
+      headers: { host: 'drops.localtest.me', cookie: await stateCookie('s', 'n',
+        'http://content.localtest.me:3000/own/s/') },
+    });
+    expect(res.statusCode).toBe(302);
+    const loc = res.headers.location as string;
+    expect(loc).toContain('/auth/bootstrap');
+    const set = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
+    expect(set.some((c) => /^drops_session=[^;]+\./.test(c))).toBe(false);
+    const { findByEmail } = await import('@/services/users');
+    const u = await findByEmail('visitor@outside.test');
+    expect(u!.kind).toBe('viewer');
+    expect(u!.username).toBeNull();
+  });
+
+  it('promotes existing viewer to member when newly allowlisted, redirects to choose-username', async () => {
+    const { db } = await import('@/db');
+    const { users, allowedEmails } = await import('@/db/schema');
+    await db.delete(users); await db.delete(allowedEmails);
+    await db.insert(allowedEmails).values({ email: 'climber@elsewhere.test' });
+    await db.insert(users).values({
+      email: 'climber@elsewhere.test', kind: 'viewer',
+    });
+    exchangeCodeMock.mockResolvedValueOnce({
+      email: 'climber@elsewhere.test', emailVerified: true, name: null, avatarUrl: null,
+    });
+    const res = await appInstance.inject({
+      method: 'GET', url: '/auth/callback?code=abc&state=s',
+      headers: { host: 'drops.localtest.me', cookie: await stateCookie('s', 'n') },
+    });
+    expect(res.statusCode).toBe(302);
+    expect(res.headers.location).toContain('/auth/choose-username');
+    const { findByEmail } = await import('@/services/users');
+    const u = await findByEmail('climber@elsewhere.test');
+    expect(u!.kind).toBe('member');
+    expect(u!.username).toBeNull();
+  });
+
+  it('demotes existing member to viewer when no longer allowlisted but still viewer-eligible, clears app cookie', async () => {
+    const { db } = await import('@/db');
+    const { users, drops, dropViewers, allowedEmails } = await import('@/db/schema');
+    await db.delete(drops); await db.delete(users);
+    await db.delete(dropViewers); await db.delete(allowedEmails);
+    const [existing] = await db.insert(users).values({
+      email: 'ex@other.test', username: 'ex', kind: 'member',
+    }).returning();
+    const [d] = await db.insert(drops).values({
+      ownerId: existing!.id, name: 's', viewMode: 'emails',
+    }).returning();
+    await db.insert(dropViewers).values({ dropId: d!.id, email: 'ex@other.test' });
+    exchangeCodeMock.mockResolvedValueOnce({
+      email: 'ex@other.test', emailVerified: true, name: null, avatarUrl: null,
+    });
+    const res = await appInstance.inject({
+      method: 'GET', url: '/auth/callback?code=abc&state=s',
+      headers: { host: 'drops.localtest.me', cookie: await stateCookie('s', 'n') },
+    });
+    expect(res.statusCode).toBe(302);
+    const set = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
+    const hasClear = set.some((c) => /^drops_session=;/.test(c));
+    const hasFreshSigned = set.some((c) => /^drops_session=[^;]+\./.test(c));
+    expect(hasClear).toBe(true);
+    expect(hasFreshSigned).toBe(false);
+    const { findByEmail } = await import('@/services/users');
+    expect((await findByEmail('ex@other.test'))!.kind).toBe('viewer');
+  });
+
+  it('overrides next to CONTENT_ORIGIN/ when viewer next points at app origin', async () => {
+    const { db } = await import('@/db');
+    const { users, drops, dropViewers, allowedEmails } = await import('@/db/schema');
+    await db.delete(drops); await db.delete(users);
+    await db.delete(dropViewers); await db.delete(allowedEmails);
+    const [owner] = await db.insert(users).values({
+      email: 'own@example.com', username: 'own', kind: 'member',
+    }).returning();
+    await db.insert(drops).values({ ownerId: owner!.id, name: 'p', viewMode: 'public' });
+
+    exchangeCodeMock.mockResolvedValueOnce({
+      email: 'drifter@elsewhere.test', emailVerified: true, name: null, avatarUrl: null,
+    });
+    const res = await appInstance.inject({
+      method: 'GET', url: '/auth/callback?code=abc&state=s',
+      headers: {
+        host: 'drops.localtest.me',
+        cookie: await stateCookie('s', 'n', 'http://drops.localtest.me:3000/app'),
+      },
+    });
+    expect(res.statusCode).toBe(302);
+    const loc = new URL(res.headers.location as string);
+    expect(loc.pathname).toBe('/auth/bootstrap');
+    expect(loc.searchParams.get('next')).toBe('http://content.localtest.me:3000/');
   });
 });
