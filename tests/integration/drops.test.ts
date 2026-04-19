@@ -6,7 +6,7 @@ import {
   replaceVersion,
   findByOwnerAndName,
   listByOwner,
-  listAll,
+  listAllVisible,
   deleteDrop,
   DropConflictError,
 } from '@/services/drops';
@@ -72,10 +72,10 @@ describe('drops service', () => {
     expect(list.every((d) => d.version !== null)).toBe(true);
   });
 
-  it('listAll joins owner username', async () => {
+  it('listAllVisible joins owner username', async () => {
     await createDropAndVersion(ownerA, 'a-site', { r2Prefix: 'drops/a/', byteSize: 1, fileCount: 1 });
     await createDropAndVersion(ownerB, 'b-site', { r2Prefix: 'drops/b/', byteSize: 1, fileCount: 1 });
-    const list = await listAll(25, 0);
+    const list = await listAllVisible({ id: ownerA, email: 'a@x.com' }, 25, 0);
     const usernames = new Set(list.map((d) => d.ownerUsername));
     expect(usernames.has('alice')).toBe(true);
     expect(usernames.has('bob')).toBe(true);

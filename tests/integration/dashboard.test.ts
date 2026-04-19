@@ -61,4 +61,44 @@ describe('GET /app', () => {
     expect(res.body).toContain('>site<');
     expect(res.body).toContain('alice/site');
   });
+
+  it("\"Everyone's drops\" filters out emails-mode drops the viewer is not listed on, but keeps public ones", async () => {
+    const { db } = await import('@/db');
+    const { users, drops, dropViewers, allowedEmails, sessions } = await import('@/db/schema');
+    await db.delete(drops); await db.delete(sessions); await db.delete(users);
+    await db.delete(dropViewers); await db.delete(allowedEmails);
+    await db.insert(allowedEmails).values([
+      { email: 'alice@allowed.test' }, { email: 'bob@allowed.test' }, { email: 'carol@allowed.test' },
+    ]);
+    const [alice] = await db.insert(users).values({
+      email: 'alice@allowed.test', username: 'alice', kind: 'member',
+    }).returning();
+    const [bob] = await db.insert(users).values({
+      email: 'bob@allowed.test', username: 'bob', kind: 'member',
+    }).returning();
+    const [carol] = await db.insert(users).values({
+      email: 'carol@allowed.test', username: 'carol', kind: 'member',
+    }).returning();
+    await db.insert(drops).values([
+      { ownerId: alice!.id, name: 'own', viewMode: 'authed' },
+      { ownerId: bob!.id, name: 'public', viewMode: 'public' },
+      { ownerId: carol!.id, name: 'private', viewMode: 'emails' },
+    ]);
+
+    const { createSession } = await import('@/services/sessions');
+    const { signCookie } = await import('@/lib/cookies');
+    const { config } = await import('@/config');
+    const sid = await createSession(alice!.id);
+    const cookie = `drops_session=${signCookie(sid, config.SESSION_SECRET)}`;
+
+    const res = await appInstance.inject({
+      method: 'GET', url: '/app',
+      headers: { host: 'drops.localtest.me', cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('>public<');
+    expect(res.body).toContain('>own<');
+    expect(res.body).not.toContain('>private<');
+    expect(res.body).toContain("Everyone's drops");
+  });
 });
