@@ -6,10 +6,9 @@ let appInstance: Awaited<ReturnType<typeof import('@/server').buildServer>>;
 
 beforeAll(async () => {
   const { buildServer } = await import('@/server');
-  const { onContentHost } = await import('@/middleware/host');
-  const { contentRootRoute } = await import('@/routes/content/root');
+  const { rootRoute } = await import('@/routes/app/root');
   appInstance = await buildServer();
-  await appInstance.register(onContentHost(contentRootRoute));
+  await appInstance.register(rootRoute);
 });
 afterAll(async () => { await appInstance.close(); });
 
