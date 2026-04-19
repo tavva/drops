@@ -17,6 +17,7 @@ import { uploadRoute } from './routes/app/upload';
 import { editDropRoute } from './routes/app/editDrop';
 import { deleteDropRoute } from './routes/app/deleteDrop';
 import { setPermissionsRoute } from './routes/app/setPermissions';
+import { viewerRoutes } from './routes/app/viewers';
 import { appStaticRoute } from './routes/app/static';
 import { rootRoute } from './routes/app/root';
 import { contentRootRoute } from './routes/content/root';
@@ -40,6 +41,7 @@ await app.register(onAppHost(async (s) => {
   await s.register(editDropRoute);
   await s.register(deleteDropRoute);
   await s.register(setPermissionsRoute);
+  await s.register(viewerRoutes);
   await s.register(appStaticRoute);
 }));
 
