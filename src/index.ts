@@ -17,6 +17,7 @@ import { uploadRoute } from './routes/app/upload';
 import { editDropRoute } from './routes/app/editDrop';
 import { deleteDropRoute } from './routes/app/deleteDrop';
 import { appStaticRoute } from './routes/app/static';
+import { rootRoute } from './routes/app/root';
 import { contentServeRoute } from './routes/content/serve';
 import { startOrphanSweep } from './services/scheduler';
 
@@ -26,6 +27,7 @@ await app.register(onAppHost(async (s) => {
   await registerAppSecurity(s);
   await registerRateLimit(s);
   await registerCsrf(s);
+  await s.register(rootRoute);
   await s.register(loginRoute);
   await s.register(callbackRoute);
   await s.register(chooseUsernameRoute);
