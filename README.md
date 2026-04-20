@@ -35,23 +35,27 @@ Good for the things you don't want on your main app's domain: Storybook builds, 
 ## How it works
 
 ```
-       ┌────────────────────┐                  ┌─────────────────────┐
-You ──▶│  APP_ORIGIN        │                  │  CONTENT_ORIGIN     │
-       │  drops.example.com │                  │  content.drops.…    │
-       │                    │                  │                     │
-       │  • Google OAuth    │  HMAC handoff    │  • Serves drops     │
-       │  • Dashboard       │ ───────────────▶ │  • Per-origin       │
-       │  • Uploads         │                  │    session cookie   │
-       └────────┬───────────┘                  └──────────┬──────────┘
-                │                                         │
-                ▼                                         ▼
-       ┌────────────────────┐                  ┌─────────────────────┐
-       │  Postgres          │                  │  Cloudflare R2      │
-       │  (Drizzle schema)  │                  │  drops/<versionId>/ │
-       └────────────────────┘                  └─────────────────────┘
+       ┌────────────────────┐                ┌────────────────────────────┐
+You ──▶│  APP_ORIGIN        │                │  <user>--<drop>.CONTENT_…  │
+       │  drops.example.com │                │  (one subdomain per drop) │
+       │                    │                │                            │
+       │  • Google OAuth    │  host-bound    │  • Serves that drop only   │
+       │  • Dashboard       │  handoff  ───▶ │  • Cookie scoped to host   │
+       │  • Uploads         │                │  • No CSP (user HTML)      │
+       └────────┬───────────┘                └──────────┬─────────────────┘
+                │                                       │
+                ▼                                       ▼
+       ┌────────────────────┐                ┌────────────────────────────┐
+       │  Postgres          │                │  Cloudflare R2             │
+       │  (Drizzle schema)  │                │  drops/<versionId>/        │
+       └────────────────────┘                └────────────────────────────┘
 ```
 
-Both origins are routed by the same Fastify process; `req.hostKind` decides which routes are reachable on which host.
+Both the app origin and the drop subdomains are routed by the same Fastify process; `req.hostKind` is `app`, `content` (apex — legacy-URL redirects only), or `drop` (a parsed `<user>--<drop>.<root>` subdomain). Each drop has its own origin, so hostile HTML in one drop cannot use same-origin `fetch` to read another drop the victim is authorised for.
+
+The content apex (`CONTENT_ORIGIN`) now only serves 301 redirects from pre-cutover URLs `/<user>/<drop>/…` to the new per-drop subdomain. The serving cookie lives on the drop's subdomain only (`Domain=<user>--<drop>.<root>`) and is bound in both the HMAC payload and the browser's cookie scoping to that exact host.
+
+First-time visit flow: drop host has no cookie → bounce to app `/auth/drop-bootstrap?host=…&next=…` → app mints a handoff bound to `(sessionId, drophost)` → browser lands on `<drophost>/auth/bootstrap?token=…` → drop host sets its own cookie → redirects to the requested path. Subsequent visits to the same drop are cookie-served.
 
 ## Quick start (local)
 
@@ -133,7 +137,10 @@ Routes are wired in `src/index.ts` against `onAppHost` / `onContentHost` plugin 
    - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
    - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-6. Add custom domains on the service: `drops.<your-domain>` and `content.drops.<your-domain>` (CNAME to the target Railway gives you).
+6. Add custom domains on the service:
+   - `drops.<your-domain>` (CNAME to the target Railway gives you).
+   - `content.drops.<your-domain>` (same target).
+   - `*.content.drops.<your-domain>` — Railway Pro supports wildcard custom domains. Add a wildcard `CNAME *.content.drops.<your-domain> → <railway-target>` at your DNS provider. Railway issues a Let's Encrypt wildcard cert via DNS-01 once the record resolves.
 7. Deploy. The Dockerfile's CMD runs migrations before starting the server.
 8. To allow an extra collaborator from outside `ALLOWED_DOMAIN`:
    ```bash
@@ -148,8 +155,9 @@ A single Google OAuth Web client can be shared across instances: add one redirec
 
 ## Security notes
 
-- Session cookies are scoped per origin (app vs content) and transferred across the gap with a short-lived HMAC handoff token.
-- CSRF tokens are bound to the session id (or pending-login id pre-signup) via HMAC plus an exact-origin match.
+- Each drop is served on its own subdomain (`<user>--<drop>.<content-root>`). The serving cookie is scoped to that exact host and signed with a host-bound HMAC, so hostile HTML in one drop cannot use same-origin `fetch` to read another drop.
+- The app origin and each drop subdomain have their own cookies; handoff tokens are bound to both `sessionId` and target host, and expire in 60 s.
+- CSRF tokens on the app origin are bound to the session id (or pending-login id pre-signup) via HMAC plus an exact-origin match.
 - Uploaded paths are NFC-normalised and rejected if they contain absolute roots, parent-segment traversal, control chars, or leading dots.
 - Zip uploads are spooled to disk; symlink entries and bomb-ratio entries are rejected before any bytes hit R2.
 

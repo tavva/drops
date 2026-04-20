@@ -19,6 +19,6 @@ export const uploadLimit = {
   rateLimit: {
     max: 10,
     timeWindow: '1 minute',
-    keyGenerator: (req: { cookies?: Record<string, string>; ip: string }) => req.cookies?.drops_session ?? req.ip,
+    keyGenerator: (req: { cookies?: Record<string, string | undefined>; ip: string }) => req.cookies?.drops_session ?? req.ip,
   },
 };
