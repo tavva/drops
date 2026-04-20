@@ -4,7 +4,7 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { exchangeCode } from '@/lib/oauth';
 import { verifyCookie, signCookie, appCookieOptions } from '@/lib/cookies';
 import { signHandoff } from '@/lib/handoff';
-import { contentRootDomain } from '@/lib/dropHost';
+import { parseDropHost } from '@/lib/dropHost';
 import { isMemberEmail, canSignInAsViewer } from '@/services/allowlist';
 import { createSession, deleteSession } from '@/services/sessions';
 import { createPendingLogin } from '@/services/pendingLogins';
@@ -17,18 +17,16 @@ export const PENDING_LOGIN_COOKIE = 'pending_login';
 
 type Kind = 'member' | 'viewer';
 
-function isAppOriginUrl(url: string): boolean {
-  try { return new URL(url).host === new URL(config.APP_ORIGIN).host; }
-  catch { return true; }
+function dropHostFromNext(nextUrl: string): { hostname: string; origin: string; path: string } | null {
+  try {
+    const u = new URL(nextUrl);
+    const parsed = parseDropHost(u.hostname);
+    if (!parsed) return null;
+    return { hostname: u.hostname.toLowerCase(), origin: u.origin, path: (u.pathname + u.search) || '/' };
+  } catch { return null; }
 }
 
-function viewerSafeNext(kind: Kind, nextUrl: string): string {
-  return kind === 'viewer' && isAppOriginUrl(nextUrl)
-    ? new URL('/', config.CONTENT_ORIGIN).toString()
-    : nextUrl;
-}
-
-async function issueSessionAndHandoff(
+async function completeLogin(
   reply: FastifyReply,
   userId: string,
   kind: Kind,
@@ -40,11 +38,20 @@ async function issueSessionAndHandoff(
       maxAge: 30 * 24 * 3600,
     }));
   }
-  const token = signHandoff(sid, contentRootDomain(), config.SESSION_SECRET, 60);
-  const bootstrap = new URL('/auth/bootstrap', config.CONTENT_ORIGIN);
-  bootstrap.searchParams.set('token', token);
-  bootstrap.searchParams.set('next', viewerSafeNext(kind, nextUrl));
-  return reply.redirect(bootstrap.toString(), 302);
+  const dropTarget = dropHostFromNext(nextUrl);
+  if (dropTarget) {
+    const token = signHandoff(sid, dropTarget.hostname, config.SESSION_SECRET, 60);
+    const bootstrap = new URL('/auth/bootstrap', dropTarget.origin);
+    bootstrap.searchParams.set('token', token);
+    bootstrap.searchParams.set('next', dropTarget.path);
+    return reply.redirect(bootstrap.toString(), 302);
+  }
+  if (kind === 'viewer') {
+    // Viewers have no app dashboard; land them on a drop subdomain only if they asked for one.
+    // Otherwise send them to the app login page (they'll see "you're logged in, nothing to do").
+    return reply.redirect(new URL('/auth/goodbye', config.APP_ORIGIN).toString(), 302);
+  }
+  return reply.redirect(nextUrl, 302);
 }
 
 export const callbackRoute: FastifyPluginAsync = async (app) => {
@@ -103,7 +110,7 @@ export const callbackRoute: FastifyPluginAsync = async (app) => {
         return reply.redirect(target.toString(), 302);
       }
 
-      return issueSessionAndHandoff(reply, existing.id, targetKind, nextUrl);
+      return completeLogin(reply, existing.id, targetKind, nextUrl);
     }
 
     if (isMember) {
@@ -126,6 +133,6 @@ export const callbackRoute: FastifyPluginAsync = async (app) => {
       name: identity.name,
       avatarUrl: identity.avatarUrl,
     });
-    return issueSessionAndHandoff(reply, viewer.id, 'viewer', nextUrl);
+    return completeLogin(reply, viewer.id, 'viewer', nextUrl);
   });
 };

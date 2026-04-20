@@ -77,7 +77,7 @@ describe('GET /auth/callback', () => {
     expect(res.body).toBe('not_allowed');
   });
 
-  it('creates session for existing user and redirects to bootstrap', async () => {
+  it('creates session for existing user and redirects to app next', async () => {
     const { db } = await import('@/db');
     const { users } = await import('@/db/schema');
     await db.insert(users).values({ email: 'ben@ben-phillips.net', username: 'ben' });
@@ -91,12 +91,33 @@ describe('GET /auth/callback', () => {
       headers: { host: 'drops.localtest.me', cookie: await stateCookie('s', 'n') },
     });
     expect(res.statusCode).toBe(302);
-    const loc = res.headers.location as string;
-    expect(loc).toContain('/auth/bootstrap');
-    expect(loc).toContain('content.localtest.me');
-    expect(loc).toContain('token=');
+    expect(res.headers.location).toBe('http://drops.localtest.me:3000/app');
     const setCookies = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
     expect(setCookies.some((c) => c.startsWith('drops_session='))).toBe(true);
+  });
+
+  it('creates session for existing user and hops through drop-host bootstrap when next is a drop URL', async () => {
+    const { db } = await import('@/db');
+    const { users, drops } = await import('@/db/schema');
+    const [u] = await db.insert(users).values({ email: 'ben@ben-phillips.net', username: 'ben' }).returning();
+    await db.insert(drops).values({ ownerId: u!.id, name: 'site', viewMode: 'authed' });
+    exchangeCodeMock.mockResolvedValueOnce({
+      email: 'ben@ben-phillips.net',
+      emailVerified: true,
+      name: 'Ben', avatarUrl: null,
+    });
+    const res = await appInstance.inject({
+      method: 'GET', url: '/auth/callback?code=abc&state=s',
+      headers: {
+        host: 'drops.localtest.me',
+        cookie: await stateCookie('s', 'n', 'http://ben--site.content.localtest.me:3000/'),
+      },
+    });
+    expect(res.statusCode).toBe(302);
+    const loc = new URL(res.headers.location as string);
+    expect(loc.origin).toBe('http://ben--site.content.localtest.me:3000');
+    expect(loc.pathname).toBe('/auth/bootstrap');
+    expect(loc.searchParams.get('token')).toBeTruthy();
   });
 
   it('creates pending login for new user and redirects to choose-username', async () => {
@@ -124,7 +145,7 @@ describe('GET /auth/callback', () => {
       email: 'own@example.com', username: 'own', kind: 'member',
     }).returning();
     const [d] = await db.insert(drops).values({
-      ownerId: owner!.id, name: 's', viewMode: 'emails',
+      ownerId: owner!.id, name: 'site', viewMode: 'emails',
     }).returning();
     await db.insert(dropViewers).values({ dropId: d!.id, email: 'visitor@outside.test' });
     exchangeCodeMock.mockResolvedValueOnce({
@@ -133,11 +154,12 @@ describe('GET /auth/callback', () => {
     const res = await appInstance.inject({
       method: 'GET', url: '/auth/callback?code=abc&state=s',
       headers: { host: 'drops.localtest.me', cookie: await stateCookie('s', 'n',
-        'http://content.localtest.me:3000/own/s/') },
+        'http://own--site.content.localtest.me:3000/') },
     });
     expect(res.statusCode).toBe(302);
-    const loc = res.headers.location as string;
-    expect(loc).toContain('/auth/bootstrap');
+    const loc = new URL(res.headers.location as string);
+    expect(loc.origin).toBe('http://own--site.content.localtest.me:3000');
+    expect(loc.pathname).toBe('/auth/bootstrap');
     const set = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
     expect(set.some((c) => /^drops_session=[^;]+\./.test(c))).toBe(false);
     const { findByEmail } = await import('@/services/users');
@@ -198,7 +220,7 @@ describe('GET /auth/callback', () => {
     expect((await findByEmail('ex@other.test'))!.kind).toBe('viewer');
   });
 
-  it('overrides next to CONTENT_ORIGIN/ when viewer next points at app origin', async () => {
+  it('sends a viewer whose next is not a drop URL to /auth/goodbye (no app dashboard for viewers)', async () => {
     const { db } = await import('@/db');
     const { users, drops, dropViewers, allowedEmails } = await import('@/db/schema');
     await db.delete(drops); await db.delete(users);
@@ -206,7 +228,7 @@ describe('GET /auth/callback', () => {
     const [owner] = await db.insert(users).values({
       email: 'own@example.com', username: 'own', kind: 'member',
     }).returning();
-    await db.insert(drops).values({ ownerId: owner!.id, name: 'p', viewMode: 'public' });
+    await db.insert(drops).values({ ownerId: owner!.id, name: 'pub', viewMode: 'public' });
 
     exchangeCodeMock.mockResolvedValueOnce({
       email: 'drifter@elsewhere.test', emailVerified: true, name: null, avatarUrl: null,
@@ -219,8 +241,6 @@ describe('GET /auth/callback', () => {
       },
     });
     expect(res.statusCode).toBe(302);
-    const loc = new URL(res.headers.location as string);
-    expect(loc.pathname).toBe('/auth/bootstrap');
-    expect(loc.searchParams.get('next')).toBe('http://content.localtest.me:3000/');
+    expect(res.headers.location).toBe('http://drops.localtest.me:3000/auth/goodbye');
   });
 });

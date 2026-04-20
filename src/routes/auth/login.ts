@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import { buildAuthUrl } from '@/lib/oauth';
 import { signCookie, appCookieOptions } from '@/lib/cookies';
+import { parseDropHost } from '@/lib/dropHost';
 import { config } from '@/config';
 
 export const OAUTH_STATE_COOKIE = 'oauth_state';
@@ -15,9 +16,11 @@ export function allowedNext(next: string | undefined): string {
     const u = new URL(next);
     const app = new URL(config.APP_ORIGIN);
     const content = new URL(config.CONTENT_ORIGIN);
-    const ok = (u.protocol === app.protocol && u.host === app.host)
-      || (u.protocol === content.protocol && u.host === content.host);
-    return ok ? u.toString() : fallback;
+    const sameScheme = u.protocol === content.protocol;
+    const matchesApp = u.protocol === app.protocol && u.host === app.host;
+    const matchesContent = sameScheme && u.host === content.host;
+    const matchesDrop = sameScheme && parseDropHost(u.hostname) !== null;
+    return (matchesApp || matchesContent || matchesDrop) ? u.toString() : fallback;
   } catch { return fallback; }
 }
 
