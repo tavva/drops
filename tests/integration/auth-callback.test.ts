@@ -36,7 +36,9 @@ async function stateCookie(state: string, nonce: string, next = 'http://drops.lo
   const payload = JSON.stringify({ state, nonce, next });
   const { signCookie } = await import('@/lib/cookies');
   const { config } = await import('@/config');
-  return `oauth_state=${signCookie(payload, config.SESSION_SECRET)}`;
+  // @fastify/cookie percent-decodes cookie values on the way in. Mirror that by percent-encoding
+  // here, or values with `%` sequences in them (e.g. an encoded `next` URL) corrupt the HMAC.
+  return `oauth_state=${encodeURIComponent(signCookie(payload, config.SESSION_SECRET))}`;
 }
 
 describe('GET /auth/callback', () => {
@@ -218,6 +220,40 @@ describe('GET /auth/callback', () => {
     expect(hasFreshSigned).toBe(false);
     const { findByEmail } = await import('@/services/users');
     expect((await findByEmail('ex@other.test'))!.kind).toBe('viewer');
+  });
+
+  it('cold-browser viewer opening a shared drop link completes via the drop-bootstrap wrapper', async () => {
+    // Regression: without unwrapping the app-host /auth/drop-bootstrap next URL, viewers (who never
+    // hold an app-session cookie) were stranded on /auth/goodbye after OAuth. completeLogin must
+    // extract the drop host from the wrapped URL and issue a host-bound handoff directly.
+    const { db } = await import('@/db');
+    const { users, drops, dropViewers } = await import('@/db/schema');
+    await db.delete(drops); await db.delete(users); await db.delete(dropViewers);
+    const [owner] = await db.insert(users).values({
+      email: 'own@example.com', username: 'own', kind: 'member',
+    }).returning();
+    const [d] = await db.insert(drops).values({
+      ownerId: owner!.id, name: 'site', viewMode: 'emails',
+    }).returning();
+    await db.insert(dropViewers).values({ dropId: d!.id, email: 'visitor@outside.test' });
+    exchangeCodeMock.mockResolvedValueOnce({
+      email: 'visitor@outside.test', emailVerified: true, name: null, avatarUrl: null,
+    });
+
+    const wrapped = 'http://drops.localtest.me:3000/auth/drop-bootstrap'
+      + '?host=own--site.content.localtest.me&next=%2F';
+    const res = await appInstance.inject({
+      method: 'GET', url: '/auth/callback?code=abc&state=s',
+      headers: { host: 'drops.localtest.me', cookie: await stateCookie('s', 'n', wrapped) },
+    });
+    expect(res.statusCode).toBe(302);
+    const loc = new URL(res.headers.location as string);
+    expect(loc.origin).toBe('http://own--site.content.localtest.me:3000');
+    expect(loc.pathname).toBe('/auth/bootstrap');
+    expect(loc.searchParams.get('token')).toBeTruthy();
+    // No app session for a viewer.
+    const set = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
+    expect(set.some((c) => /^drops_session=[^;]+\./.test(c))).toBe(false);
   });
 
   it('sends a viewer whose next is not a drop URL to /auth/goodbye (no app dashboard for viewers)', async () => {

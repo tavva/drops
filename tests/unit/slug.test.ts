@@ -6,9 +6,12 @@ describe('isValidSlug', () => {
     ['a', false],
     ['ab', true],
     ['a-b', true],
-    ['a--b', true],
+    ['a--b', false],   // consecutive hyphens banned — would collide with <user>--<drop> host delimiter
+    ['a---b', false],
     ['-a', false],
     ['a-', false],
+    ['a-b-c', true],
+    ['a-b--c', false],
     ['AB', false],
     ['a_b', false],
     ['a.b', false],

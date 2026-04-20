@@ -4,7 +4,7 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { exchangeCode } from '@/lib/oauth';
 import { verifyCookie, signCookie, appCookieOptions } from '@/lib/cookies';
 import { signHandoff } from '@/lib/handoff';
-import { parseDropHost } from '@/lib/dropHost';
+import { dropTargetFromNext } from '@/lib/dropHost';
 import { isMemberEmail, canSignInAsViewer } from '@/services/allowlist';
 import { createSession, deleteSession } from '@/services/sessions';
 import { createPendingLogin } from '@/services/pendingLogins';
@@ -18,15 +18,6 @@ export const PENDING_LOGIN_COOKIE = 'pending_login';
 
 type Kind = 'member' | 'viewer';
 
-function dropHostFromNext(nextUrl: string): { hostname: string; origin: string; path: string } | null {
-  try {
-    const u = new URL(nextUrl);
-    const parsed = parseDropHost(u.hostname);
-    if (!parsed) return null;
-    return { hostname: u.hostname.toLowerCase(), origin: u.origin, path: (u.pathname + u.search) || '/' };
-  } catch { return null; }
-}
-
 async function completeLogin(
   reply: FastifyReply,
   userId: string,
@@ -39,7 +30,10 @@ async function completeLogin(
       maxAge: 30 * 24 * 3600,
     }));
   }
-  const dropTarget = dropHostFromNext(nextUrl);
+  // dropTargetFromNext recognises both direct drop-host URLs and app-host /auth/drop-bootstrap
+  // wrappers. The wrapper case is what lets a logged-out viewer who followed a shared drop link
+  // complete the drop-cookie bootstrap without ever holding an app-session cookie.
+  const dropTarget = dropTargetFromNext(nextUrl);
   if (dropTarget) {
     const token = signHandoff(sid, dropTarget.hostname, config.SESSION_SECRET, 60);
     const bootstrap = new URL('/auth/bootstrap', dropTarget.origin);
@@ -48,8 +42,6 @@ async function completeLogin(
     return reply.redirect(bootstrap.toString(), 302);
   }
   if (kind === 'viewer') {
-    // Viewers have no app dashboard; land them on a drop subdomain only if they asked for one.
-    // Otherwise send them to the app login page (they'll see "you're logged in, nothing to do").
     return reply.redirect(new URL('/auth/goodbye', config.APP_ORIGIN).toString(), 302);
   }
   return reply.redirect(nextUrl, 302);

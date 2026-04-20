@@ -2,7 +2,7 @@
 // ABOUTME: Uses TEST_ENV's CONTENT_ORIGIN = http://content.localtest.me:3000, so root = content.localtest.me.
 import { describe, it, expect } from 'vitest';
 import '../helpers/env';
-import { parseDropHost, dropHostFor, dropOriginFor, contentRootDomain } from '@/lib/dropHost';
+import { parseDropHost, dropHostFor, dropOriginFor, contentRootDomain, dropTargetFromNext } from '@/lib/dropHost';
 
 describe('contentRootDomain', () => {
   it('derives from CONTENT_ORIGIN hostname', () => {
@@ -57,11 +57,65 @@ describe('parseDropHost', () => {
     expect(parseDropHost('a--foo.content.localtest.me')).toBeNull();   // user too short
     expect(parseDropHost('alice--b.content.localtest.me')).toBeNull();  // drop too short
   });
+
+  it('rejects hosts with ambiguous `--` split (collision-safe)', () => {
+    // `alice--foo--bar` could split either way; both halves must pass isValidSlug which bans `--`,
+    // so the parser must reject rather than silently pick a greedy interpretation.
+    expect(parseDropHost('alice--foo--bar.content.localtest.me')).toBeNull();
+    expect(parseDropHost('a--b--c--d.content.localtest.me')).toBeNull();
+  });
   it('rejects an extra subdomain level', () => {
     expect(parseDropHost('foo.alice--bar.content.localtest.me')).toBeNull();
   });
   it('round-trips with dropHostFor', () => {
     const host = dropHostFor('carol-23', 'landing-page');
     expect(parseDropHost(host)).toEqual({ username: 'carol-23', dropname: 'landing-page' });
+  });
+});
+
+describe('dropTargetFromNext', () => {
+  it('resolves a direct drop-host URL at the configured port', () => {
+    expect(dropTargetFromNext('http://alice--foo.content.localtest.me:3000/about.html')).toEqual({
+      hostname: 'alice--foo.content.localtest.me',
+      username: 'alice',
+      dropname: 'foo',
+      origin: 'http://alice--foo.content.localtest.me:3000',
+      path: '/about.html',
+    });
+  });
+
+  it('rejects a drop-host URL with a non-configured port', () => {
+    expect(dropTargetFromNext('http://alice--foo.content.localtest.me:8443/')).toBeNull();
+  });
+
+  it('rejects a drop-host URL with a different scheme', () => {
+    expect(dropTargetFromNext('https://alice--foo.content.localtest.me:3000/')).toBeNull();
+  });
+
+  it('unwraps an app-host /auth/drop-bootstrap URL', () => {
+    const nextPath = '/about.html';
+    const wrapped = `http://drops.localtest.me:3000/auth/drop-bootstrap?host=alice--foo.content.localtest.me&next=${encodeURIComponent(nextPath)}`;
+    expect(dropTargetFromNext(wrapped)).toEqual({
+      hostname: 'alice--foo.content.localtest.me',
+      username: 'alice',
+      dropname: 'foo',
+      origin: 'http://alice--foo.content.localtest.me:3000',
+      path: '/about.html',
+    });
+  });
+
+  it('clamps wrapped next path to / when invalid', () => {
+    const wrapped = 'http://drops.localtest.me:3000/auth/drop-bootstrap?host=alice--foo.content.localtest.me&next=//evil.com';
+    expect(dropTargetFromNext(wrapped)?.path).toBe('/');
+  });
+
+  it('returns null for a wrapped URL whose host param is invalid', () => {
+    const wrapped = 'http://drops.localtest.me:3000/auth/drop-bootstrap?host=evil.com&next=/';
+    expect(dropTargetFromNext(wrapped)).toBeNull();
+  });
+
+  it('returns null for a non-drop, non-wrapper URL', () => {
+    expect(dropTargetFromNext('http://drops.localtest.me:3000/app')).toBeNull();
+    expect(dropTargetFromNext('https://evil.com/')).toBeNull();
   });
 });
