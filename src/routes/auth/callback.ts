@@ -11,6 +11,7 @@ import { createPendingLogin } from '@/services/pendingLogins';
 import { findByEmail, createViewerUser, setUserKind } from '@/services/users';
 import { OAUTH_STATE_COOKIE, allowedNext } from './login';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
+import { tightAuthLimit } from '@/middleware/rateLimit';
 import { config } from '@/config';
 
 export const PENDING_LOGIN_COOKIE = 'pending_login';
@@ -55,7 +56,7 @@ async function completeLogin(
 }
 
 export const callbackRoute: FastifyPluginAsync = async (app) => {
-  app.get('/auth/callback', { config: { skipCsrf: true } }, async (req, reply) => {
+  app.get('/auth/callback', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
     const raw = req.cookies[OAUTH_STATE_COOKIE];
     if (!raw) return reply.code(400).send('missing_state');
     const payload = verifyCookie(raw, config.SESSION_SECRET);

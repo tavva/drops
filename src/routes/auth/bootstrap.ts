@@ -8,6 +8,7 @@ import { findByUsername } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
 import { canView } from '@/services/permissions';
 import { DROP_SESSION_COOKIE } from '@/middleware/auth';
+import { tightAuthLimit } from '@/middleware/rateLimit';
 import { config } from '@/config';
 
 function sameHostPath(raw: string | undefined): string {
@@ -17,7 +18,7 @@ function sameHostPath(raw: string | undefined): string {
 }
 
 export const bootstrapRoute: FastifyPluginAsync = async (app) => {
-  app.get('/auth/bootstrap', { config: { skipCsrf: true } }, async (req, reply) => {
+  app.get('/auth/bootstrap', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
     const parsed = req.dropHost;
     if (!parsed) return reply.code(404).send('not_found');
 

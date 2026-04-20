@@ -54,6 +54,7 @@ await app.register(onContentHost(async (s) => {
 
 await app.register(onDropHost(async (s) => {
   await registerContentSecurity(s);
+  await registerRateLimit(s);
   await s.register(bootstrapRoute);
   await s.register(dropServeRoute);
 }));
