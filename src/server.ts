@@ -8,12 +8,14 @@ import view from '@fastify/view';
 import ejs from 'ejs';
 import { randomUUID } from 'node:crypto';
 import { config } from '@/config';
+import { parseDropHost, contentRootDomain } from '@/lib/dropHost';
 
-export type HostKind = 'app' | 'content' | 'unknown';
+export type HostKind = 'app' | 'content' | 'drop' | 'unknown';
 
 declare module 'fastify' {
   interface FastifyRequest {
     hostKind: HostKind;
+    dropHost?: { username: string; dropname: string; hostname: string };
   }
 }
 
@@ -43,13 +45,20 @@ export async function buildServer(opts: BuildOptions = {}): Promise<FastifyInsta
   await app.register(view, { engine: { ejs }, root: 'src/views' });
 
   app.decorateRequest('hostKind', 'unknown');
+  app.decorateRequest('dropHost', undefined);
   app.addHook('onRequest', async (req) => {
     const host = (req.headers.host ?? '').split(':')[0]?.toLowerCase() ?? '';
     const appHost = new URL(config.APP_ORIGIN).hostname.toLowerCase();
-    const contentHost = new URL(config.CONTENT_ORIGIN).hostname.toLowerCase();
-    if (host === appHost) req.hostKind = 'app';
-    else if (host === contentHost) req.hostKind = 'content';
-    else req.hostKind = 'unknown';
+    const contentApex = contentRootDomain();
+    if (host === appHost) { req.hostKind = 'app'; return; }
+    if (host === contentApex) { req.hostKind = 'content'; return; }
+    const parsed = parseDropHost(host);
+    if (parsed) {
+      req.hostKind = 'drop';
+      req.dropHost = { ...parsed, hostname: host };
+      return;
+    }
+    req.hostKind = 'unknown';
   });
 
   const { healthRoute } = await import('@/routes/health');

@@ -3,7 +3,7 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
 
-function hostScoped(kind: 'app' | 'content', plugin: FastifyPluginAsync): FastifyPluginAsync {
+function hostScoped(kind: 'app' | 'content' | 'drop', plugin: FastifyPluginAsync): FastifyPluginAsync {
   return async (app: FastifyInstance) => {
     app.addHook('onRequest', async (req, reply) => {
       if (req.hostKind !== kind) reply.callNotFound();
@@ -18,6 +18,10 @@ export function onAppHost(plugin: FastifyPluginAsync): FastifyPluginAsync {
 
 export function onContentHost(plugin: FastifyPluginAsync): FastifyPluginAsync {
   return hostScoped('content', plugin);
+}
+
+export function onDropHost(plugin: FastifyPluginAsync): FastifyPluginAsync {
+  return hostScoped('drop', plugin);
 }
 
 export { fp };
