@@ -42,22 +42,23 @@ test('drop permissions: flip to emails, add viewer, serve, remove, 404', async (
   await createDropAndVersion(alice!.id, 'perm', { r2Prefix: prefix, byteSize: 24, fileCount: 1 });
 
   const { createSession } = await import('../../src/services/sessions');
-  const { signCookie } = await import('../../src/lib/cookies');
+  const { signCookie, signDropCookie } = await import('../../src/lib/cookies');
   const { issueCsrfToken } = await import('../../src/lib/csrf');
   const aliceSid = await createSession(alice!.id);
   const aliceCsrf = issueCsrfToken(aliceSid);
   const aliceCookie = `drops_session=${signCookie(aliceSid, process.env.SESSION_SECRET!)}; drops_csrf=${aliceCsrf}`;
 
   const visitorSid = await createSession(visitor!.id);
-  const visitorContentCookie = `drops_content_session=${signCookie(visitorSid, process.env.SESSION_SECRET!)}`;
+  const dropHost = 'alice--perm.content.localtest.me';
+  const visitorDropCookie = `drops_drop_session=${signDropCookie(visitorSid, dropHost, process.env.SESSION_SECRET!)}`;
 
   const { buildServer } = await import('../../src/server');
-  const { onAppHost, onContentHost } = await import('../../src/middleware/host');
+  const { onAppHost, onDropHost } = await import('../../src/middleware/host');
   const { registerCsrf } = await import('../../src/middleware/csrf');
   const { setPermissionsRoute } = await import('../../src/routes/app/setPermissions');
   const { viewerRoutes } = await import('../../src/routes/app/viewers');
   const { editDropRoute } = await import('../../src/routes/app/editDrop');
-  const { contentServeRoute } = await import('../../src/routes/content/serve');
+  const { dropServeRoute } = await import('../../src/routes/content/dropServe');
 
   const app = await buildServer();
   await app.register(onAppHost(async (s) => {
@@ -66,7 +67,7 @@ test('drop permissions: flip to emails, add viewer, serve, remove, 404', async (
     await s.register(viewerRoutes);
     await s.register(editDropRoute);
   }));
-  await app.register(onContentHost(contentServeRoute));
+  await app.register(onDropHost(dropServeRoute));
 
   const flip = await app.inject({
     method: 'POST', url: '/app/drops/perm/permissions',
@@ -91,8 +92,8 @@ test('drop permissions: flip to emails, add viewer, serve, remove, 404', async (
   expect(add.statusCode).toBe(302);
 
   const servedOk = await app.inject({
-    method: 'GET', url: '/alice/perm/',
-    headers: { host: 'content.localtest.me', cookie: visitorContentCookie },
+    method: 'GET', url: '/',
+    headers: { host: dropHost, cookie: visitorDropCookie },
   });
   expect(servedOk.statusCode).toBe(200);
   expect(servedOk.body).toContain('Hello permissions');
@@ -109,8 +110,8 @@ test('drop permissions: flip to emails, add viewer, serve, remove, 404', async (
   expect(remove.statusCode).toBe(302);
 
   const servedDenied = await app.inject({
-    method: 'GET', url: '/alice/perm/',
-    headers: { host: 'content.localtest.me', cookie: visitorContentCookie },
+    method: 'GET', url: '/',
+    headers: { host: dropHost, cookie: visitorDropCookie },
   });
   expect(servedDenied.statusCode).toBe(404);
 
