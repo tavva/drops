@@ -2,11 +2,10 @@
 // ABOUTME: On miss, redirects to the app-host /auth/login with ?next= URL-encoded.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionUser, rollIfStale } from '@/services/sessions';
-import { verifyCookie, appCookieOptions, contentCookieOptions, verifyDropCookie, dropCookieOptions } from '@/lib/cookies';
+import { verifyCookie, appCookieOptions, verifyDropCookie, dropCookieOptions } from '@/lib/cookies';
 import { config } from '@/config';
 
 export const APP_SESSION_COOKIE = 'drops_session';
-export const CONTENT_SESSION_COOKIE = 'drops_content_session';
 export const DROP_SESSION_COOKIE = 'drops_drop_session';
 
 declare module 'fastify' {
@@ -104,14 +103,3 @@ function bounceToDropBootstrap(reply: FastifyReply, host: string, pathOrUrl: str
   return reply.redirect(target.toString(), 302);
 }
 
-export async function requireContentSession(req: FastifyRequest, reply: FastifyReply) {
-  const found = await loadFromCookie(req, CONTENT_SESSION_COOKIE);
-  if (!found) {
-    reply.clearCookie(CONTENT_SESSION_COOKIE, contentCookieOptions());
-    return loginRedirect(reply, currentUrl(req, config.CONTENT_ORIGIN));
-  }
-  await rollIfStale(found.id);
-  req.session = { id: found.id };
-  req.user = found.user;
-  req.log = req.log.child({ user_id: found.user.id });
-}

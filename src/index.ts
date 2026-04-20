@@ -11,7 +11,6 @@ import { chooseUsernameRoute } from './routes/auth/chooseUsername';
 import { logoutRoute } from './routes/auth/logout';
 import { bootstrapRoute } from './routes/auth/bootstrap';
 import { dropBootstrapRoute } from './routes/auth/dropBootstrap';
-import { contentLogoutRoute } from './routes/auth/contentLogout';
 import { dashboardRoute } from './routes/app/dashboard';
 import { newDropRoute } from './routes/app/newDrop';
 import { uploadRoute } from './routes/app/upload';
@@ -50,7 +49,6 @@ await app.register(onAppHost(async (s) => {
 
 await app.register(onContentHost(async (s) => {
   await registerContentSecurity(s);
-  await s.register(contentLogoutRoute);
   await s.register(contentServeRoute);
 }));
 
