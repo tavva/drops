@@ -9,6 +9,7 @@ import { consumePendingLogin } from '@/services/pendingLogins';
 import { createUser, isUsernameTaken, setUsername, UserConflictError } from '@/services/users';
 import { createSession, getSessionUser } from '@/services/sessions';
 import { signHandoff } from '@/lib/handoff';
+import { contentRootDomain } from '@/lib/dropHost';
 import { isValidSlug, suggestSlug, RESERVED_USERNAMES } from '@/lib/slug';
 import { issueCsrfToken, verifyCsrfToken, requestOriginOk, CSRF_COOKIE } from '@/lib/csrf';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
@@ -135,7 +136,7 @@ export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
         reply.setCookie(APP_SESSION_COOKIE, signCookie(sid, config.SESSION_SECRET), appCookieOptions({
           maxAge: 30 * 24 * 3600,
         }));
-        const token = signHandoff(sid, config.SESSION_SECRET, 60);
+        const token = signHandoff(sid, contentRootDomain(), config.SESSION_SECRET, 60);
         const bootstrap = new URL('/auth/bootstrap', config.CONTENT_ORIGIN);
         bootstrap.searchParams.set('token', token);
         bootstrap.searchParams.set('next', next);
@@ -143,7 +144,7 @@ export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
       }
 
       await setUsername(ctx.user.id, username);
-      const token = signHandoff(ctx.sessionId, config.SESSION_SECRET, 60);
+      const token = signHandoff(ctx.sessionId, contentRootDomain(), config.SESSION_SECRET, 60);
       const bootstrap = new URL('/auth/bootstrap', config.CONTENT_ORIGIN);
       bootstrap.searchParams.set('token', token);
       bootstrap.searchParams.set('next', next);
