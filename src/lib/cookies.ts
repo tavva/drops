@@ -28,7 +28,7 @@ export interface CookieOptions {
   sameSite: 'lax' | 'strict' | 'none';
   path: string;
   maxAge?: number;
-  domain?: undefined;
+  domain?: string;
 }
 
 function isSecureOrigin(origin: string): boolean {
@@ -51,6 +51,38 @@ export function contentCookieOptions(overrides: Partial<CookieOptions> = {}): Co
     secure: isSecureOrigin(config.CONTENT_ORIGIN),
     sameSite: 'lax',
     path: '/',
+    ...overrides,
+  };
+}
+
+export function signDropCookie(sessionId: string, host: string, key: string): string {
+  const payload = `${sessionId}|${host}`;
+  return `${payload}.${mac(payload, key)}`;
+}
+
+export function verifyDropCookie(raw: string, expectedHost: string, key: string): string | null {
+  const i = raw.lastIndexOf('.');
+  if (i < 1) return null;
+  const payload = raw.slice(0, i);
+  const sig = raw.slice(i + 1);
+  const expected = mac(payload, key);
+  if (sig.length !== expected.length) return null;
+  if (!timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  const parts = payload.split('|');
+  if (parts.length !== 2) return null;
+  const [sessionId, host] = parts as [string, string];
+  if (!sessionId || !host) return null;
+  if (host !== expectedHost) return null;
+  return sessionId;
+}
+
+export function dropCookieOptions(host: string, overrides: Partial<CookieOptions> = {}): CookieOptions {
+  return {
+    httpOnly: true,
+    secure: isSecureOrigin(config.CONTENT_ORIGIN),
+    sameSite: 'lax',
+    path: '/',
+    domain: host,
     ...overrides,
   };
 }
