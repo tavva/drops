@@ -22,6 +22,7 @@ import { viewerRoutes } from './routes/app/viewers';
 import { appStaticRoute } from './routes/app/static';
 import { rootRoute } from './routes/app/root';
 import { contentServeRoute } from './routes/content/serve';
+import { dropServeRoute } from './routes/content/dropServe';
 import { startOrphanSweep } from './services/scheduler';
 
 const app = await buildServer();
@@ -56,6 +57,7 @@ await app.register(onContentHost(async (s) => {
 await app.register(onDropHost(async (s) => {
   await registerContentSecurity(s);
   await s.register(bootstrapRoute);
+  await s.register(dropServeRoute);
 }));
 
 startOrphanSweep();
