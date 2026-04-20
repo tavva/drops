@@ -8,7 +8,7 @@ import { drops, dropVersions } from '@/db/schema';
 import { requireCompletedMember } from '@/middleware/auth';
 import { uploadLimit } from '@/middleware/rateLimit';
 import { isValidSlug } from '@/lib/slug';
-import { uploadFolderParts, UPLOAD_LIMITS, MultipartPart } from '@/services/upload';
+import { uploadFolderParts, UPLOAD_LIMITS, MultipartPart, promoteSingleHtmlToIndex } from '@/services/upload';
 import { uploadZip } from '@/services/uploadZip';
 import { UploadError } from '@/services/uploadErrors';
 import { gcVersion } from '@/services/gc';
@@ -76,6 +76,12 @@ export const uploadRoute: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: e.code, message: e.message });
       }
       throw e;
+    }
+
+    try {
+      result = await promoteSingleHtmlToIndex(r2Prefix, result);
+    } catch (e) {
+      req.log.warn({ err: e }, 'promoteSingleHtmlToIndex failed');
     }
 
     let oldVersionId: string | null = null;
