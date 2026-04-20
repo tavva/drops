@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { drops, dropVersions, users } from '@/db/schema';
 import { resetBucket } from '../helpers/r2';
