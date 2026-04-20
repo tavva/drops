@@ -26,12 +26,11 @@ import { startOrphanSweep } from './services/scheduler';
 
 const app = await buildServer();
 
-await app.register(rootRoute);
-
 await app.register(onAppHost(async (s) => {
   await registerAppSecurity(s);
   await registerRateLimit(s);
   await registerCsrf(s);
+  await s.register(rootRoute);
   await s.register(loginRoute);
   await s.register(callbackRoute);
   await s.register(chooseUsernameRoute);
