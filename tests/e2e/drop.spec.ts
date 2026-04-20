@@ -32,17 +32,18 @@ test('upload a folder and serve it from the content host', async () => {
   const [u] = await db.insert(users).values({ email: 'tester@example.com', username: 'tester' }).returning();
 
   const { createSession } = await import('../../src/services/sessions');
-  const { signCookie } = await import('../../src/lib/cookies');
+  const { signCookie, signDropCookie } = await import('../../src/lib/cookies');
   const sid = await createSession(u!.id);
   const appCookie = `drops_session=${signCookie(sid, process.env.SESSION_SECRET!)}`;
-  const contentCookie = `drops_content_session=${signCookie(sid, process.env.SESSION_SECRET!)}`;
+  const dropHost = 'tester--demo.content.localtest.me';
+  const dropCookie = `drops_drop_session=${signDropCookie(sid, dropHost, process.env.SESSION_SECRET!)}`;
 
   const { buildServer } = await import('../../src/server');
-  const { onAppHost, onContentHost } = await import('../../src/middleware/host');
+  const { onAppHost, onDropHost } = await import('../../src/middleware/host');
   const { registerCsrf } = await import('../../src/middleware/csrf');
   const { dashboardRoute } = await import('../../src/routes/app/dashboard');
   const { uploadRoute } = await import('../../src/routes/app/upload');
-  const { contentServeRoute } = await import('../../src/routes/content/serve');
+  const { dropServeRoute } = await import('../../src/routes/content/dropServe');
 
   const app = await buildServer();
   await app.register(onAppHost(async (s) => {
@@ -50,7 +51,7 @@ test('upload a folder and serve it from the content host', async () => {
     await s.register(dashboardRoute);
     await s.register(uploadRoute);
   }));
-  await app.register(onContentHost(contentServeRoute));
+  await app.register(onDropHost(dropServeRoute));
 
   const { issueCsrfToken } = await import('../../src/lib/csrf');
   const csrf = issueCsrfToken(sid);
@@ -83,8 +84,8 @@ test('upload a folder and serve it from the content host', async () => {
   expect(uploadRes.statusCode).toBe(302);
 
   const contentRes = await app.inject({
-    method: 'GET', url: '/tester/demo/',
-    headers: { host: 'content.localtest.me', cookie: contentCookie },
+    method: 'GET', url: '/',
+    headers: { host: dropHost, cookie: dropCookie },
   });
   expect(contentRes.statusCode).toBe(200);
   expect(contentRes.body).toContain('Hello from fixture');
