@@ -59,7 +59,7 @@ describe('GET /app', () => {
       headers: { host: 'drops.localtest.me', cookie: await authedCookie() },
     });
     expect(res.body).toContain('>site<');
-    expect(res.body).toContain('alice/site');
+    expect(res.body).toContain('alice--site.content.localtest.me');
   });
 
   it("\"Everyone's drops\" filters out emails-mode drops the viewer is not listed on, but keeps public ones", async () => {

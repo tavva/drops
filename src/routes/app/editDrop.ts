@@ -4,8 +4,8 @@ import { requireCompletedMember } from '@/middleware/auth';
 import { findByOwnerAndName } from '@/services/drops';
 import { listViewers } from '@/services/dropViewers';
 import { isValidSlug } from '@/lib/slug';
-import { config } from '@/config';
 import { formatBytes } from '@/lib/format';
+import { dropOriginFor } from '@/lib/dropHost';
 
 export const editDropRoute: FastifyPluginAsync = async (app) => {
   app.get('/app/drops/:name', { preHandler: requireCompletedMember }, async (req, reply) => {
@@ -19,7 +19,7 @@ export const editDropRoute: FastifyPluginAsync = async (app) => {
       drop,
       viewers,
       csrfToken: req.csrfToken ?? '',
-      contentUrl: new URL(`/${user.username}/${name}/`, config.CONTENT_ORIGIN).toString(),
+      contentUrl: `${dropOriginFor(user.username!, name)}/`,
       viewerError: null,
       formatBytes,
     });

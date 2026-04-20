@@ -4,6 +4,7 @@ import { requireCompletedMember } from '@/middleware/auth';
 import { listByOwner, listAllVisible } from '@/services/drops';
 import { config } from '@/config';
 import { formatBytes } from '@/lib/format';
+import { dropOriginFor } from '@/lib/dropHost';
 
 export const dashboardRoute: FastifyPluginAsync = async (app) => {
   app.get('/app', { preHandler: requireCompletedMember }, async (req, reply) => {
@@ -19,6 +20,7 @@ export const dashboardRoute: FastifyPluginAsync = async (app) => {
       contentOrigin: config.CONTENT_ORIGIN,
       csrfToken: req.csrfToken ?? '',
       formatBytes,
+      dropOriginFor,
     });
   });
 };
