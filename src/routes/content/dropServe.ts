@@ -66,14 +66,11 @@ async function serve(req: FastifyRequest, reply: FastifyReply) {
   return reply.send(found.body);
 }
 
-const DROP_HOST_REGEX = /^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]--[a-z0-9][a-z0-9-]{0,30}[a-z0-9]\.[^/]+$/;
-
 export const dropServeRoute: FastifyPluginAsync = async (app) => {
   const method: ('GET' | 'HEAD')[] = ['GET', 'HEAD'];
   const common = {
     method,
     preHandler: requireDropSession,
-    constraints: { host: DROP_HOST_REGEX },
     config: { skipCsrf: true },
     handler: serve,
   };

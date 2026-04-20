@@ -1,12 +1,40 @@
-// ABOUTME: Route registration helpers that constrain a plugin to the app or content host.
-// ABOUTME: Requests whose host does not match are short-circuited to 404.
-import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
+// ABOUTME: Route registration helpers that scope a plugin to the app, content apex, or drop host.
+// ABOUTME: Injects a host regex constraint on every child route so find-my-way never considers a route
+// ABOUTME: outside its host — stops /:a/:b style apex routes from hijacking nested drop-host paths.
+import type { FastifyInstance, FastifyPluginAsync, RouteOptions } from 'fastify';
 import fp from 'fastify-plugin';
+import { config } from '@/config';
+import { contentRootDomain } from '@/lib/dropHost';
 
-function hostScoped(kind: 'app' | 'content' | 'drop', plugin: FastifyPluginAsync): FastifyPluginAsync {
+type ScopedHost = 'app' | 'content' | 'drop';
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hostRegexFor(kind: ScopedHost): RegExp {
+  const appHost = new URL(config.APP_ORIGIN).hostname.toLowerCase();
+  const contentApex = contentRootDomain();
+  const port = '(:\\d+)?';
+  switch (kind) {
+    case 'app':
+      return new RegExp(`^${escapeRegex(appHost)}${port}$`, 'i');
+    case 'content':
+      return new RegExp(`^${escapeRegex(contentApex)}${port}$`, 'i');
+    case 'drop': {
+      const slug = '[a-z0-9][a-z0-9-]{0,30}[a-z0-9]';
+      return new RegExp(`^${slug}--${slug}\\.${escapeRegex(contentApex)}${port}$`, 'i');
+    }
+  }
+}
+
+function hostScoped(kind: ScopedHost, plugin: FastifyPluginAsync): FastifyPluginAsync {
   return async (app: FastifyInstance) => {
-    app.addHook('onRequest', async (req, reply) => {
-      if (req.hostKind !== kind) reply.callNotFound();
+    const constraint = hostRegexFor(kind);
+    app.addHook('onRoute', (routeOpts: RouteOptions) => {
+      const existing = (routeOpts.constraints ?? {}) as Record<string, unknown>;
+      if (existing.host !== undefined) return;
+      routeOpts.constraints = { ...existing, host: constraint };
     });
     await app.register(plugin);
   };
