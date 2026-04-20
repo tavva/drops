@@ -9,6 +9,7 @@ import { findByUsername } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
 import { canView } from '@/services/permissions';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
+import { tightAuthLimit } from '@/middleware/rateLimit';
 import { config } from '@/config';
 
 function normaliseNextPath(raw: string | undefined): string {
@@ -34,7 +35,7 @@ function dropHostOrigin(host: string): string {
 }
 
 export const dropBootstrapRoute: FastifyPluginAsync = async (app) => {
-  app.get('/auth/drop-bootstrap', { config: { skipCsrf: true } }, async (req, reply) => {
+  app.get('/auth/drop-bootstrap', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
     const q = req.query as Record<string, string | undefined>;
     const host = (q.host ?? '').toLowerCase();
     const parsed = parseDropHost(host);

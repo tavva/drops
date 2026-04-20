@@ -13,6 +13,7 @@ import { parseDropHost } from '@/lib/dropHost';
 import { isValidSlug, suggestSlug, RESERVED_USERNAMES } from '@/lib/slug';
 import { issueCsrfToken, verifyCsrfToken, requestOriginOk, CSRF_COOKIE } from '@/lib/csrf';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
+import { tightAuthLimit } from '@/middleware/rateLimit';
 import { allowedNext } from './login';
 import { PENDING_LOGIN_COOKIE } from './callback';
 import { config } from '@/config';
@@ -89,7 +90,7 @@ async function completeSignup(
 }
 
 export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
-  app.get('/auth/choose-username', async (req, reply) => {
+  app.get('/auth/choose-username', { config: tightAuthLimit }, async (req, reply) => {
     const ctx = await loadContext(req);
     if (!ctx) return reply.redirect(new URL('/auth/login', config.APP_ORIGIN).toString(), 302);
     const q = req.query as Record<string, string | undefined>;
@@ -106,7 +107,7 @@ export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post('/auth/choose-username', { config: { skipCsrf: true } }, async (req, reply) => {
+  app.post('/auth/choose-username', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
     const ctx = await loadContext(req);
     if (!ctx) return reply.redirect(new URL('/auth/login', config.APP_ORIGIN).toString(), 302);
 
