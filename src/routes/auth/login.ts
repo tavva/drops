@@ -4,7 +4,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { randomBytes } from 'node:crypto';
 import { buildAuthUrl } from '@/lib/oauth';
 import { signCookie, verifyCookie, appCookieOptions } from '@/lib/cookies';
-import { parseDropHost } from '@/lib/dropHost';
+import { parseDropHost, dropTargetFromNext } from '@/lib/dropHost';
 import { signHandoff } from '@/lib/handoff';
 import { getSessionUser } from '@/services/sessions';
 import { findByUsername } from '@/services/users';
@@ -23,23 +23,14 @@ export function allowedNext(next: string | undefined): string {
     const u = new URL(next);
     const app = new URL(config.APP_ORIGIN);
     const content = new URL(config.CONTENT_ORIGIN);
-    const sameScheme = u.protocol === content.protocol;
     const matchesApp = u.protocol === app.protocol && u.host === app.host;
-    const matchesContent = sameScheme && u.host === content.host;
-    const matchesDrop = sameScheme && parseDropHost(u.hostname) !== null;
+    const matchesContent = u.protocol === content.protocol && u.host === content.host;
+    const matchesDrop =
+      u.protocol === content.protocol &&
+      u.port === content.port &&
+      parseDropHost(u.hostname) !== null;
     return (matchesApp || matchesContent || matchesDrop) ? u.toString() : fallback;
   } catch { return fallback; }
-}
-
-interface DropTarget { hostname: string; origin: string; path: string; parsed: { username: string; dropname: string }; }
-
-function dropTargetFromNext(nextUrl: string): DropTarget | null {
-  try {
-    const u = new URL(nextUrl);
-    const parsed = parseDropHost(u.hostname);
-    if (!parsed) return null;
-    return { hostname: u.hostname.toLowerCase(), origin: u.origin, path: (u.pathname + u.search) || '/', parsed };
-  } catch { return null; }
 }
 
 export const loginRoute: FastifyPluginAsync = async (app) => {
@@ -55,8 +46,8 @@ export const loginRoute: FastifyPluginAsync = async (app) => {
       const found = await getSessionUser(sid);
       const target = dropTargetFromNext(next);
       if (found && target) {
-        const owner = await findByUsername(target.parsed.username);
-        const drop = owner ? await findByOwnerAndName(owner.id, target.parsed.dropname) : null;
+        const owner = await findByUsername(target.username);
+        const drop = owner ? await findByOwnerAndName(owner.id, target.dropname) : null;
         const allowed = drop ? await canView(
           { id: found.user.id, email: found.user.email },
           { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode },

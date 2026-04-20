@@ -42,6 +42,23 @@ describe('GET /auth/login', () => {
     expect(setCookies.some((c) => c.startsWith('oauth_state='))).toBe(true);
   });
 
+  it('rejects a drop-host next on a non-configured port', async () => {
+    // Regression: allowedNext must refuse hostnames that parse as drop hosts but run on a port
+    // other than CONTENT_ORIGIN's — otherwise an attacker can lure the app into minting a handoff
+    // toward attacker-controlled infrastructure.
+    const res = await appInstance.inject({
+      method: 'GET',
+      url: `/auth/login?next=${encodeURIComponent('http://alice--foo.content.localtest.me:8443/')}`,
+      headers: { host: 'drops.localtest.me' },
+    });
+    expect(res.statusCode).toBe(302);
+    const setCookies = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
+    const cookie = setCookies.find((c) => c.startsWith('oauth_state='))!;
+    const value = decodeURIComponent(cookie.split(';')[0]!.split('=')[1]!);
+    const payload = JSON.parse(value.slice(0, value.lastIndexOf('.')));
+    expect(payload.next).toBe('http://drops.localtest.me:3000/app');
+  });
+
   it('clamps evil next= to the default', async () => {
     const res = await appInstance.inject({
       method: 'GET', url: '/auth/login?next=https://evil.com/harm',

@@ -9,7 +9,7 @@ import { consumePendingLogin } from '@/services/pendingLogins';
 import { createUser, isUsernameTaken, setUsername, UserConflictError } from '@/services/users';
 import { createSession, getSessionUser } from '@/services/sessions';
 import { signHandoff } from '@/lib/handoff';
-import { parseDropHost } from '@/lib/dropHost';
+import { dropTargetFromNext } from '@/lib/dropHost';
 import { isValidSlug, suggestSlug, RESERVED_USERNAMES } from '@/lib/slug';
 import { issueCsrfToken, verifyCsrfToken, requestOriginOk, CSRF_COOKIE } from '@/lib/csrf';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
@@ -75,17 +75,14 @@ async function completeSignup(
   sessionId: string,
   nextUrl: string,
 ): Promise<import('fastify').FastifyReply> {
-  try {
-    const u = new URL(nextUrl);
-    const parsed = parseDropHost(u.hostname);
-    if (parsed) {
-      const token = signHandoff(sessionId, u.hostname.toLowerCase(), config.SESSION_SECRET, 60);
-      const bootstrap = new URL('/auth/bootstrap', u.origin);
-      bootstrap.searchParams.set('token', token);
-      bootstrap.searchParams.set('next', (u.pathname + u.search) || '/');
-      return reply.redirect(bootstrap.toString(), 302);
-    }
-  } catch { /* fall through */ }
+  const target = dropTargetFromNext(nextUrl);
+  if (target) {
+    const token = signHandoff(sessionId, target.hostname, config.SESSION_SECRET, 60);
+    const bootstrap = new URL('/auth/bootstrap', target.origin);
+    bootstrap.searchParams.set('token', token);
+    bootstrap.searchParams.set('next', target.path);
+    return reply.redirect(bootstrap.toString(), 302);
+  }
   return reply.redirect(nextUrl, 302);
 }
 
