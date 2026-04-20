@@ -28,7 +28,7 @@ describe('GET /auth/bootstrap', () => {
     const { signHandoff } = await import('@/lib/handoff');
     const { config } = await import('@/config');
     const sid = await createSession(userId);
-    const token = signHandoff(sid, config.SESSION_SECRET, 60);
+    const token = signHandoff(sid, 'content.localtest.me', config.SESSION_SECRET, 60);
     const next = 'http://drops.localtest.me:3000/app';
     const res = await appInstance.inject({
       method: 'GET', url: `/auth/bootstrap?token=${encodeURIComponent(token)}&next=${encodeURIComponent(next)}`,
@@ -43,7 +43,7 @@ describe('GET /auth/bootstrap', () => {
   it('rejects expired token', async () => {
     const { signHandoff } = await import('@/lib/handoff');
     const { config } = await import('@/config');
-    const token = signHandoff('whatever', config.SESSION_SECRET, -1);
+    const token = signHandoff('whatever', 'content.localtest.me', config.SESSION_SECRET, -1);
     const res = await appInstance.inject({
       method: 'GET', url: `/auth/bootstrap?token=${encodeURIComponent(token)}`,
       headers: { host: 'content.localtest.me' },
@@ -56,7 +56,7 @@ describe('GET /auth/bootstrap', () => {
     const { signHandoff } = await import('@/lib/handoff');
     const { config } = await import('@/config');
     const sid = await createSession(userId);
-    const token = signHandoff(sid, config.SESSION_SECRET, 60);
+    const token = signHandoff(sid, 'content.localtest.me', config.SESSION_SECRET, 60);
     const res = await appInstance.inject({
       method: 'GET', url: `/auth/bootstrap?token=${encodeURIComponent(token)}&next=https://evil.com`,
       headers: { host: 'content.localtest.me' },

@@ -4,6 +4,7 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { exchangeCode } from '@/lib/oauth';
 import { verifyCookie, signCookie, appCookieOptions } from '@/lib/cookies';
 import { signHandoff } from '@/lib/handoff';
+import { contentRootDomain } from '@/lib/dropHost';
 import { isMemberEmail, canSignInAsViewer } from '@/services/allowlist';
 import { createSession, deleteSession } from '@/services/sessions';
 import { createPendingLogin } from '@/services/pendingLogins';
@@ -39,7 +40,7 @@ async function issueSessionAndHandoff(
       maxAge: 30 * 24 * 3600,
     }));
   }
-  const token = signHandoff(sid, config.SESSION_SECRET, 60);
+  const token = signHandoff(sid, contentRootDomain(), config.SESSION_SECRET, 60);
   const bootstrap = new URL('/auth/bootstrap', config.CONTENT_ORIGIN);
   bootstrap.searchParams.set('token', token);
   bootstrap.searchParams.set('next', viewerSafeNext(kind, nextUrl));
