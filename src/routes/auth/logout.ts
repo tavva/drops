@@ -1,5 +1,5 @@
-// ABOUTME: App-host POST /auth/logout — deletes session, clears cookie, hops to content host for its cookie.
-// ABOUTME: Plus a GET /auth/goodbye that renders a simple goodbye page.
+// ABOUTME: POST /auth/logout on the app host — deletes the session row and clears the app cookie.
+// ABOUTME: Any drop-host cookies the user has are invalidated server-side (their sessionId no longer resolves).
 import type { FastifyPluginAsync } from 'fastify';
 import { deleteSession } from '@/services/sessions';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
@@ -14,9 +14,7 @@ export const logoutRoute: FastifyPluginAsync = async (app) => {
       if (sid) await deleteSession(sid);
     }
     reply.clearCookie(APP_SESSION_COOKIE, appCookieOptions());
-    const contentLogout = new URL('/auth/logout', config.CONTENT_ORIGIN);
-    contentLogout.searchParams.set('next', new URL('/auth/goodbye', config.APP_ORIGIN).toString());
-    return reply.redirect(contentLogout.toString(), 302);
+    return reply.redirect(new URL('/auth/goodbye', config.APP_ORIGIN).toString(), 302);
   });
 
   app.get('/auth/goodbye', async (_req, reply) => {
