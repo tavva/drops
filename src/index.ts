@@ -1,7 +1,7 @@
 // ABOUTME: Production entry point. Wires all route modules onto the correct host and starts the server.
 import { buildServer } from './server';
 import { config } from './config';
-import { onAppHost, onContentHost } from './middleware/host';
+import { onAppHost, onContentHost, onDropHost } from './middleware/host';
 import { registerCsrf } from './middleware/csrf';
 import { registerAppSecurity, registerContentSecurity } from './middleware/security';
 import { registerRateLimit } from './middleware/rateLimit';
@@ -49,9 +49,13 @@ await app.register(onAppHost(async (s) => {
 
 await app.register(onContentHost(async (s) => {
   await registerContentSecurity(s);
-  await s.register(bootstrapRoute);
   await s.register(contentLogoutRoute);
   await s.register(contentServeRoute);
+}));
+
+await app.register(onDropHost(async (s) => {
+  await registerContentSecurity(s);
+  await s.register(bootstrapRoute);
 }));
 
 startOrphanSweep();

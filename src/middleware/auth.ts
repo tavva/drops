@@ -7,6 +7,7 @@ import { config } from '@/config';
 
 export const APP_SESSION_COOKIE = 'drops_session';
 export const CONTENT_SESSION_COOKIE = 'drops_content_session';
+export const DROP_SESSION_COOKIE = 'drops_drop_session';
 
 declare module 'fastify' {
   interface FastifyRequest {
