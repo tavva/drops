@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { eq } from 'drizzle-orm';
 import { buildMultipart } from '../helpers/formdata';
 import { resetBucket } from '../helpers/r2';
 
