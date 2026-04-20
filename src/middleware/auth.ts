@@ -2,7 +2,7 @@
 // ABOUTME: On miss, redirects to the app-host /auth/login with ?next= URL-encoded.
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionUser, rollIfStale } from '@/services/sessions';
-import { verifyCookie, appCookieOptions, contentCookieOptions } from '@/lib/cookies';
+import { verifyCookie, appCookieOptions, contentCookieOptions, verifyDropCookie, dropCookieOptions } from '@/lib/cookies';
 import { config } from '@/config';
 
 export const APP_SESSION_COOKIE = 'drops_session';
@@ -71,6 +71,37 @@ export async function requireCompletedMember(req: FastifyRequest, reply: Fastify
   if (req.user && req.user.username === null) {
     return reply.redirect(new URL('/auth/choose-username', config.APP_ORIGIN).toString(), 302);
   }
+}
+
+export async function requireDropSession(req: FastifyRequest, reply: FastifyReply) {
+  const parsed = req.dropHost;
+  if (!parsed) { reply.callNotFound(); return; }
+  const raw = req.cookies[DROP_SESSION_COOKIE];
+  const sid = raw ? verifyDropCookie(raw, parsed.hostname, config.SESSION_SECRET) : null;
+  if (!sid) return bounceToDropBootstrap(reply, parsed.hostname, req.raw.url ?? '/');
+  const found = await getSessionUser(sid);
+  if (!found) {
+    reply.clearCookie(DROP_SESSION_COOKIE, dropCookieOptions(parsed.hostname));
+    return bounceToDropBootstrap(reply, parsed.hostname, req.raw.url ?? '/');
+  }
+  await rollIfStale(sid);
+  req.session = { id: sid };
+  req.user = {
+    id: found.user.id,
+    email: found.user.email,
+    username: found.user.username,
+    name: found.user.name,
+    avatarUrl: found.user.avatarUrl,
+    kind: found.user.kind as 'member' | 'viewer',
+  };
+  req.log = req.log.child({ user_id: found.user.id });
+}
+
+function bounceToDropBootstrap(reply: FastifyReply, host: string, pathOrUrl: string): FastifyReply {
+  const target = new URL('/auth/drop-bootstrap', config.APP_ORIGIN);
+  target.searchParams.set('host', host);
+  target.searchParams.set('next', pathOrUrl);
+  return reply.redirect(target.toString(), 302);
 }
 
 export async function requireContentSession(req: FastifyRequest, reply: FastifyReply) {
