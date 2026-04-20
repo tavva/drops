@@ -120,6 +120,7 @@ export const uploadRoute: FastifyPluginAsync = async (app) => {
       });
     }
 
+    // redirect back to the app-side edit page; the drop's live URL is shown there.
     const target = new URL(`/app/drops/${name}`, config.APP_ORIGIN);
     return reply.redirect(target.toString(), 302);
   });

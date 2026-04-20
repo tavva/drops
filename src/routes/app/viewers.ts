@@ -8,6 +8,7 @@ import { isValidSlug } from '@/lib/slug';
 import { isLikelyEmail, normaliseEmail } from '@/lib/email';
 import { config } from '@/config';
 import { formatBytes } from '@/lib/format';
+import { dropOriginFor } from '@/lib/dropHost';
 
 export const viewerRoutes: FastifyPluginAsync = async (app) => {
   app.post('/app/drops/:name/viewers', { preHandler: requireCompletedMember }, async (req, reply) => {
@@ -30,7 +31,7 @@ export const viewerRoutes: FastifyPluginAsync = async (app) => {
         drop,
         viewers,
         csrfToken: token,
-        contentUrl: new URL(`/${req.user!.username}/${name}/`, config.CONTENT_ORIGIN).toString(),
+        contentUrl: `${dropOriginFor(req.user!.username!, name)}/`,
         viewerError: `"${raw}" is not a valid email address.`,
         formatBytes,
       });

@@ -30,15 +30,14 @@
           <div class="field">
             <label for="uname-input">Username</label>
             <div class="input-wrap">
-              <span class="prefix"><%= new URL(contentOrigin).host %>/</span>
               <input id="uname-input" name="username" value="<%= suggested %>"
                 pattern="^[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$" required
                 autocomplete="off" spellcheck="false"
                 autocapitalize="off" autocorrect="off"
                 minlength="2" maxlength="32">
-              <span class="suffix">/</span>
+              <span class="suffix">--<em>drop</em>.<%= new URL(contentOrigin).host %></span>
             </div>
-            <p class="hint">2–32 characters. Lowercase letters, digits and hyphens.</p>
+            <p class="hint">2–32 characters. Lowercase letters, digits and hyphens. Every drop lives at <code><%= '<username>--<drop>.' + new URL(contentOrigin).host %></code>.</p>
           </div>
 
           <input type="hidden" name="_csrf" value="<%= csrfToken %>">

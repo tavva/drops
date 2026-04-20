@@ -81,7 +81,7 @@
                   </td>
                   <td>
                     <span class="drop-url">
-                      <span class="host"><%= new URL(contentOrigin).host %>/</span><span class="path"><%= user.username %>/<%= d.name %>/</span>
+                      <span class="host"><%= new URL(dropOriginFor(user.username, d.name)).host %>/</span>
                     </span>
                   </td>
                   <td class="meta-col"><%= d.version ? d.version.fileCount : '—' %></td>
@@ -97,7 +97,7 @@
                   </td>
                   <td>
                     <div class="row-actions">
-                      <a class="icon-btn" href="<%= contentOrigin %>/<%= user.username %>/<%= d.name %>/" title="open" target="_blank" rel="noreferrer">↗</a>
+                      <a class="icon-btn" href="<%= dropOriginFor(user.username, d.name) %>/" title="open" target="_blank" rel="noreferrer">↗</a>
                       <a class="icon-btn" href="/app/drops/<%= d.name %>" title="edit">✎</a>
                     </div>
                   </td>
@@ -128,12 +128,12 @@
                   <td>
                     <div class="drop-name">
                       <svg class="tiny-drop" viewBox="0 0 24 32" aria-hidden="true"><path d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/></svg>
-                      <a href="<%= contentOrigin %>/<%= d.ownerUsername %>/<%= d.name %>/" target="_blank" rel="noreferrer"><span><%= d.name %></span></a>
+                      <a href="<%= dropOriginFor(d.ownerUsername, d.name) %>/" target="_blank" rel="noreferrer"><span><%= d.name %></span></a>
                     </div>
                   </td>
                   <td>
                     <span class="drop-url">
-                      <span class="host"><%= new URL(contentOrigin).host %>/</span><span class="path"><%= d.ownerUsername %>/<%= d.name %>/</span>
+                      <span class="host"><%= new URL(dropOriginFor(d.ownerUsername, d.name)).host %>/</span>
                     </span>
                   </td>
                   <td>
