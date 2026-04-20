@@ -54,4 +54,54 @@ describe('GET /auth/login', () => {
     const payload = JSON.parse(value.slice(0, value.lastIndexOf('.')));
     expect(payload.next).not.toContain('evil.com');
   });
+
+  it('short-circuits to drop-host bootstrap when user is signed in and next is a drop URL', async () => {
+    const { db } = await import('@/db');
+    const { users, sessions, drops } = await import('@/db/schema');
+    await db.delete(drops); await db.delete(sessions); await db.delete(users);
+    const [u] = await db.insert(users).values({ email: 'a@e.com', username: 'alice', kind: 'member' }).returning();
+    await db.insert(drops).values({ ownerId: u!.id, name: 'site', viewMode: 'authed' });
+    const { createSession } = await import('@/services/sessions');
+    const { signCookie } = await import('@/lib/cookies');
+    const { config } = await import('@/config');
+    const sid = await createSession(u!.id);
+    const res = await appInstance.inject({
+      method: 'GET',
+      url: `/auth/login?next=${encodeURIComponent('http://alice--site.content.localtest.me:3000/')}`,
+      headers: {
+        host: 'drops.localtest.me',
+        cookie: `drops_session=${signCookie(sid, config.SESSION_SECRET)}`,
+      },
+    });
+    expect(res.statusCode).toBe(302);
+    const loc = new URL(res.headers.location as string);
+    expect(loc.origin).toBe('http://alice--site.content.localtest.me:3000');
+    expect(loc.pathname).toBe('/auth/bootstrap');
+    expect(loc.searchParams.get('token')).toBeTruthy();
+  });
+
+  it('does not short-circuit if user cannot view the drop', async () => {
+    const { db } = await import('@/db');
+    const { users, sessions, drops } = await import('@/db/schema');
+    await db.delete(drops); await db.delete(sessions); await db.delete(users);
+    // A viewer user whose email is not in the emails allowlist for the drop.
+    const [owner] = await db.insert(users).values({ email: 'owner@e.com', username: 'owner', kind: 'member' }).returning();
+    await db.insert(drops).values({ ownerId: owner!.id, name: 'site', viewMode: 'emails' });
+    const [viewer] = await db.insert(users).values({ email: 'stranger@e.com', username: null, kind: 'viewer' }).returning();
+    const { createSession } = await import('@/services/sessions');
+    const { signCookie } = await import('@/lib/cookies');
+    const { config } = await import('@/config');
+    const sid = await createSession(viewer!.id);
+    const res = await appInstance.inject({
+      method: 'GET',
+      url: `/auth/login?next=${encodeURIComponent('http://owner--site.content.localtest.me:3000/')}`,
+      headers: {
+        host: 'drops.localtest.me',
+        cookie: `drops_session=${signCookie(sid, config.SESSION_SECRET)}`,
+      },
+    });
+    expect(res.statusCode).toBe(302);
+    // Falls through to OAuth redirect.
+    expect(res.headers.location as string).toMatch(/accounts\.google\.com/);
+  });
 });
