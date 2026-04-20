@@ -96,7 +96,7 @@ describe('GET/POST /auth/choose-username', () => {
     expect(res.body).toContain('taken');
   });
 
-  it('POST with valid new slug creates user + session and redirects to bootstrap', async () => {
+  it('POST with valid new slug creates user + session and redirects to the default next', async () => {
     const ctx = await prepare();
     const token = ctx.token();
     const res = await appInstance.inject({
@@ -109,13 +109,32 @@ describe('GET/POST /auth/choose-username', () => {
       payload: `username=alpha&_csrf=${encodeURIComponent(token)}`,
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toContain('/auth/bootstrap');
+    expect(res.headers.location).toBe('http://drops.localtest.me:3000/app');
     const setCookies = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
     expect(setCookies.some((c) => c.startsWith('drops_session='))).toBe(true);
     const { db } = await import('@/db');
     const { users } = await import('@/db/schema');
     const rows = await db.select().from(users);
     expect(rows.some((u) => u.username === 'alpha')).toBe(true);
+  });
+
+  it('POST with valid new slug and a drop-host next hops through drop bootstrap', async () => {
+    const ctx = await prepare();
+    const token = ctx.token();
+    const res = await appInstance.inject({
+      method: 'POST', url: '/auth/choose-username',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: 'http://drops.localtest.me:3000',
+        cookie: [ctx.pendingCookie, ctx.csrfCookie(token)].join('; '), 'content-type': 'application/x-www-form-urlencoded',
+      },
+      payload: `username=alpha&next=${encodeURIComponent('http://alpha--site.content.localtest.me:3000/')}&_csrf=${encodeURIComponent(token)}`,
+    });
+    expect(res.statusCode).toBe(302);
+    const loc = new URL(res.headers.location as string);
+    expect(loc.origin).toBe('http://alpha--site.content.localtest.me:3000');
+    expect(loc.pathname).toBe('/auth/bootstrap');
+    expect(loc.searchParams.get('token')).toBeTruthy();
   });
 
   it('GET with a member app-session and null username renders the form', async () => {
@@ -165,7 +184,7 @@ describe('GET/POST /auth/choose-username', () => {
       payload: `username=picked&next=${encodeURIComponent('http://drops.localtest.me:3000/app')}&_csrf=${encodeURIComponent(csrf)}`,
     });
     expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toContain('/auth/bootstrap');
+    expect(res.headers.location).toBe('http://drops.localtest.me:3000/app');
 
     const { findByEmail } = await import('@/services/users');
     const after = await findByEmail('promoted@example.com');

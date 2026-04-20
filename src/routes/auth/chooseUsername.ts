@@ -9,7 +9,7 @@ import { consumePendingLogin } from '@/services/pendingLogins';
 import { createUser, isUsernameTaken, setUsername, UserConflictError } from '@/services/users';
 import { createSession, getSessionUser } from '@/services/sessions';
 import { signHandoff } from '@/lib/handoff';
-import { contentRootDomain } from '@/lib/dropHost';
+import { parseDropHost } from '@/lib/dropHost';
 import { isValidSlug, suggestSlug, RESERVED_USERNAMES } from '@/lib/slug';
 import { issueCsrfToken, verifyCsrfToken, requestOriginOk, CSRF_COOKIE } from '@/lib/csrf';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
@@ -67,6 +67,25 @@ function ctxId(ctx: Context): string {
 
 function ctxEmail(ctx: Context): string {
   return ctx.mode === 'pending' ? ctx.pending.email : ctx.user.email;
+}
+
+async function completeSignup(
+  reply: import('fastify').FastifyReply,
+  sessionId: string,
+  nextUrl: string,
+): Promise<import('fastify').FastifyReply> {
+  try {
+    const u = new URL(nextUrl);
+    const parsed = parseDropHost(u.hostname);
+    if (parsed) {
+      const token = signHandoff(sessionId, u.hostname.toLowerCase(), config.SESSION_SECRET, 60);
+      const bootstrap = new URL('/auth/bootstrap', u.origin);
+      bootstrap.searchParams.set('token', token);
+      bootstrap.searchParams.set('next', (u.pathname + u.search) || '/');
+      return reply.redirect(bootstrap.toString(), 302);
+    }
+  } catch { /* fall through */ }
+  return reply.redirect(nextUrl, 302);
 }
 
 export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
@@ -136,19 +155,11 @@ export const chooseUsernameRoute: FastifyPluginAsync = async (app) => {
         reply.setCookie(APP_SESSION_COOKIE, signCookie(sid, config.SESSION_SECRET), appCookieOptions({
           maxAge: 30 * 24 * 3600,
         }));
-        const token = signHandoff(sid, contentRootDomain(), config.SESSION_SECRET, 60);
-        const bootstrap = new URL('/auth/bootstrap', config.CONTENT_ORIGIN);
-        bootstrap.searchParams.set('token', token);
-        bootstrap.searchParams.set('next', next);
-        return reply.redirect(bootstrap.toString(), 302);
+        return completeSignup(reply, sid, next);
       }
 
       await setUsername(ctx.user.id, username);
-      const token = signHandoff(ctx.sessionId, contentRootDomain(), config.SESSION_SECRET, 60);
-      const bootstrap = new URL('/auth/bootstrap', config.CONTENT_ORIGIN);
-      bootstrap.searchParams.set('token', token);
-      bootstrap.searchParams.set('next', next);
-      return reply.redirect(bootstrap.toString(), 302);
+      return completeSignup(reply, ctx.sessionId, next);
     } catch (e) {
       if (e instanceof UserConflictError) return rerender(`That ${e.field} is taken.`);
       throw e;
