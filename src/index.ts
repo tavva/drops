@@ -10,6 +10,7 @@ import { callbackRoute } from './routes/auth/callback';
 import { chooseUsernameRoute } from './routes/auth/chooseUsername';
 import { logoutRoute } from './routes/auth/logout';
 import { bootstrapRoute } from './routes/auth/bootstrap';
+import { dropBootstrapRoute } from './routes/auth/dropBootstrap';
 import { contentLogoutRoute } from './routes/auth/contentLogout';
 import { dashboardRoute } from './routes/app/dashboard';
 import { newDropRoute } from './routes/app/newDrop';
@@ -34,6 +35,7 @@ await app.register(onAppHost(async (s) => {
   await s.register(loginRoute);
   await s.register(callbackRoute);
   await s.register(chooseUsernameRoute);
+  await s.register(dropBootstrapRoute);
   await s.register(logoutRoute);
   await s.register(dashboardRoute);
   await s.register(newDropRoute);
