@@ -15,6 +15,8 @@
 - TDD: failing test → minimal code → green → refactor → commit.
 - Integration tests need `docker compose up -d` first.
 
+**Test-setup pattern in this repo.** There is no `truncateAll` / `insertUser` / `insertDrop` / `startTestServer` / `signedAppCookie` helper library. The canonical integration-test pattern is inline: see `tests/integration/dashboard.test.ts:1-30` — `beforeAll` calls `buildServer()` and registers the routes under test; `beforeEach` does direct `db.delete(...)` + `db.insert(...)` for the tables it touches; a local `authedCookie()` function inside the file mints a signed session cookie via `createSession` + `signCookie`. The test snippets in this plan use placeholder helper names (`truncateAll`, `insertUser`, `insertDrop`, `signedAppCookie`) for brevity — when implementing, replace them with the inline pattern from `dashboard.test.ts`. Do not invent new helper modules unless a piece of setup is reused across ≥ 3 test files.
+
 ---
 
 ## Task 1 — Schema: folders table + drops.folder_id
@@ -34,7 +36,7 @@ export const folders = pgTable('folders', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   name: text('name').notNull(),
   parentId: uuid('parent_id').references((): any => folders.id, { onDelete: 'restrict' }),
-  createdBy: uuid('created_by').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   noSelfParent: check('folders_no_self_parent', sql`${t.id} <> ${t.parentId}`),
@@ -66,10 +68,12 @@ Expected: a new file appears in `src/db/migrations/` (e.g. `0002_*.sql`). Inspec
 
 Verify the migration:
 - creates `folders` with the `CHECK` and both partial unique indexes,
+- `folders.created_by` is nullable with `ON DELETE SET NULL` (attribution only; folder survives the creator's removal),
+- `folders.parent_id` is `ON DELETE RESTRICT` (we always go through the reparenting service),
 - adds `folder_id` to `drops` with `ON DELETE SET NULL`,
 - creates the `drops_folder_id_idx` index.
 
-If anything is off, hand-edit the `.sql` (drizzle-kit can miss partial-index predicates and raw CHECKs). `ON DELETE SET NULL` and the `ON DELETE RESTRICT` on `parent_id` must both be in the SQL.
+If anything is off, hand-edit the `.sql` (drizzle-kit can miss partial-index predicates and raw CHECKs). All three FK actions above must be in the SQL.
 
 **Step 4: Run the migration against the dev database.**
 
@@ -340,7 +344,7 @@ describe('createFolder', () => {
     const f = await createFolder(userId, 'reports');
     expect(f.name).toBe('reports');
     expect(f.parentId).toBeNull();
-    expect(f.createdBy).toBe(userId);
+    expect(f.createdBy).toBe(userId); // still the caller id on create; only goes null if the user row is later deleted
   });
 
   it('creates a nested folder', async () => {
@@ -419,7 +423,7 @@ Add the function:
 
 ```ts
 export interface Folder {
-  id: string; name: string; parentId: string | null; createdBy: string; createdAt: Date;
+  id: string; name: string; parentId: string | null; createdBy: string | null; createdAt: Date;
 }
 
 async function acquireStructuralLock(tx: typeof db) {
@@ -912,14 +916,68 @@ git commit -m "feat(folders): setDropFolder with visibility gate"
 
 ---
 
-## Task 9 — Unpaginated visible-drops feed + folder listing
+## Task 9 — Shared unpaginated visibility feed (service helper)
 
 **Files:**
 - Modify: `src/services/drops.ts`
+- Modify: `tests/integration/drops.test.ts` (append a describe block)
+
+The dashboard tree needs the full set of drops a viewer can see, not today's 25-row page. Extract the visibility SQL used by `listAllVisible` into a private helper and expose a new `listAllVisibleUnpaged` that returns every visible drop. `listAllVisible` keeps its signature and becomes a thin wrapper that adds `LIMIT/OFFSET`. Task 10 (folder tree) consumes this helper — no duplicated visibility SQL in the folders module.
+
+**Step 1: Write a failing test** that asserts `listAllVisibleUnpaged` returns every visible drop for a seeded user (own drops, `public`, `authed`, and `emails` drops the user is listed on) and excludes `emails` drops they aren't listed on. Seed > 25 drops to prove it isn't secretly paged.
+
+**Step 2: Run to confirm failure.**
+
+**Step 3: Implement.** Factor the WHERE clause of `listAllVisible` into a private `visibilityWhereClause(userId, normEmail)` returning an `sql` fragment (or keep the body inline and duplicate once — both acceptable). Add:
+
+```ts
+export async function listAllVisibleUnpaged(user: { id: string; email: string }): Promise<DropListItem[]> {
+  // same SELECT and WHERE as listAllVisible, without LIMIT/OFFSET, with ORDER BY d.name ASC
+  // (alphabetical is the order the dashboard wants; callers needing recency can re-sort)
+}
+```
+
+Key decision: order by `d.name ASC` at the DB level. The dashboard's alphabetical-per-level rule means sorting client-side would still work, but doing it in SQL keeps the order deterministic for tests.
+
+**Step 4: Run tests.** Expected: pass.
+
+**Step 5: Commit.**
+
+```bash
+git add src/services/drops.ts tests/integration/drops.test.ts
+git commit -m "feat(drops): listAllVisibleUnpaged helper"
+```
+
+---
+
+## Task 10 — Service: listFolderTree (view model)
+
+**Files:**
 - Modify: `src/services/folders.ts`
 - Create: `tests/integration/folders-tree.test.ts`
 
-The dashboard tree needs all visible drops, not the current 25-row page. And it needs to load every folder with a per-viewer count.
+The view model is the single source of truth for the dashboard. It's computed once per request and consumed by the EJS partials without further tree walking.
+
+**View model shape.** Every consumer uses these exact fields:
+
+```ts
+export interface FolderNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+  childFolderIds: string[];   // direct children, alphabetical
+  drops: DropListItem[];      // direct drops visible to the viewer, alphabetical by name
+  visibleDropCount: number;   // drops.length — precomputed so views don't recount
+}
+
+export interface FolderTree {
+  byId: Map<string, FolderNode>;
+  rootFolderIds: string[];    // alphabetical
+  rootDrops: DropListItem[];  // alphabetical
+}
+```
+
+The delete confirmation dialog uses each node's `visibleDropCount` and `childFolderIds.length` — the design's "N drops and M subfolders will move up" copy refers to *direct* children of the deleted folder, not the whole subtree. `childFolderIds` lets the EJS partial recurse without re-filtering on every node.
 
 **Step 1: Write the failing test.**
 
@@ -947,50 +1005,56 @@ describe('listFolderTree', () => {
     bob = { id: b.id, email: 'bob@x.test' };
   });
 
-  it('returns the full folder list with visible counts', async () => {
-    const fa = await createFolder(alice.id, 'work');
-    await createFolder(alice.id, 'sub', fa.id);
-    const d = await insertDrop({ ownerId: alice.id, name: 'pub', viewMode: 'public', folderId: fa.id });
-
+  it('lists all folders under byId and direct-child ids alphabetically', async () => {
+    const work = await createFolder(alice.id, 'work');
+    const z = await createFolder(alice.id, 'z-sub', work.id);
+    const a = await createFolder(alice.id, 'a-sub', work.id);
     const tree = await listFolderTree(alice);
-    expect(tree.folders.length).toBe(2);
-    const workNode = tree.folders.find((f) => f.id === fa.id)!;
-    expect(workNode.drops.map((x) => x.id)).toContain(d.id);
+    expect(tree.byId.size).toBe(3);
+    expect(tree.byId.get(work.id)!.childFolderIds).toEqual([a.id, z.id]);
   });
 
-  it('omits drops the viewer cannot see', async () => {
+  it('places drops inside their folder, sorted alphabetically', async () => {
+    const fa = await createFolder(alice.id, 'work');
+    const pub = await insertDrop({ ownerId: alice.id, name: 'zed', viewMode: 'public', folderId: fa.id });
+    const early = await insertDrop({ ownerId: alice.id, name: 'alpha', viewMode: 'public', folderId: fa.id });
+    const tree = await listFolderTree(alice);
+    expect(tree.byId.get(fa.id)!.drops.map((x) => x.id)).toEqual([early.id, pub.id]);
+  });
+
+  it('omits drops the viewer cannot see; counts reflect per-viewer totals', async () => {
     const f = await createFolder(alice.id, 'secret');
     const d = await insertDrop({ ownerId: alice.id, name: 'hidden', viewMode: 'emails', folderId: f.id });
 
     const asAlice = await listFolderTree(alice);
     const asBob = await listFolderTree(bob);
-    expect(asAlice.folders.find((x) => x.id === f.id)!.drops.map((x) => x.id)).toContain(d.id);
-    expect(asBob.folders.find((x) => x.id === f.id)!.drops.map((x) => x.id)).not.toContain(d.id);
+    expect(asAlice.byId.get(f.id)!.visibleDropCount).toBe(1);
+    expect(asBob.byId.get(f.id)!.visibleDropCount).toBe(0);
+    expect(asBob.byId.get(f.id)!.drops.map((x) => x.id)).not.toContain(d.id);
   });
 
   it('includes the drop when the viewer is on the emails list', async () => {
     const f = await createFolder(alice.id, 'shared');
     const d = await insertDrop({ ownerId: alice.id, name: 'shared', viewMode: 'emails', folderId: f.id });
     await db.insert(dropViewers).values({ dropId: d.id, email: 'bob@x.test' });
-
     const asBob = await listFolderTree(bob);
-    expect(asBob.folders.find((x) => x.id === f.id)!.drops.map((x) => x.id)).toContain(d.id);
+    expect(asBob.byId.get(f.id)!.drops.map((x) => x.id)).toContain(d.id);
   });
 
-  it('returns unfoldered drops as rootDrops', async () => {
-    const d = await insertDrop({ ownerId: alice.id, name: 'floating', viewMode: 'public' });
+  it('returns unfoldered drops as rootDrops, alphabetical', async () => {
+    const z = await insertDrop({ ownerId: alice.id, name: 'zz', viewMode: 'public' });
+    const a = await insertDrop({ ownerId: alice.id, name: 'aa', viewMode: 'public' });
     const tree = await listFolderTree(alice);
-    expect(tree.rootDrops.map((x) => x.id)).toContain(d.id);
+    expect(tree.rootDrops.map((x) => x.id)).toEqual([a.id, z.id]);
   });
 
-  it('with mineOnly=true, drops are restricted to the caller owner but folders stay', async () => {
+  it('with mineOnly=true, drops restricted to caller; folders still shown', async () => {
     const f = await createFolder(bob.id, 'bobs-work');
     await insertDrop({ ownerId: bob.id, name: 'bob-drop', viewMode: 'public', folderId: f.id });
     await insertDrop({ ownerId: alice.id, name: 'alice-drop', viewMode: 'public' });
-
     const tree = await listFolderTree(alice, { mineOnly: true });
-    expect(tree.folders.map((x) => x.id)).toContain(f.id);                  // folder present
-    expect(tree.folders.find((x) => x.id === f.id)!.drops.length).toBe(0);  // no drops visible in mine-only
+    expect(tree.byId.has(f.id)).toBe(true);
+    expect(tree.byId.get(f.id)!.visibleDropCount).toBe(0);
     expect(tree.rootDrops.map((x) => x.name)).toEqual(['alice-drop']);
   });
 });
@@ -1000,20 +1064,27 @@ describe('listFolderTree', () => {
 
 **Step 3: Implement `listFolderTree` in `src/services/folders.ts`.**
 
-Use a single raw SQL query that mirrors the `listAllVisible` WHERE clause, with no `LIMIT`/`OFFSET`. Join users for owner username. Do the grouping in TypeScript.
+Approach: use `listAllVisibleUnpaged` (Task 9) to fetch visible drops, then fetch all folders, then build the view model in TypeScript. Key design choices:
+
+- `listAllVisibleUnpaged` already returns drops sorted alphabetically (Task 9). We need to carry each row's `folderId`, so extend `DropListItem` with `folderId: string | null` and the `SELECT` in `listAllVisibleUnpaged` must include it. That's a one-line ripple: update `DropListItem` in `src/services/drops.ts` when implementing Task 9.
+- With `mineOnly`, filter the returned drops to `ownerId === user.id` in memory (the visibility SQL is already doing the viewer filter — we just apply the owner filter on top).
 
 ```ts
 import type { DropListItem } from '@/services/drops';
+import { listAllVisibleUnpaged } from '@/services/drops';
 
 export interface FolderNode {
   id: string;
   name: string;
   parentId: string | null;
+  childFolderIds: string[];
   drops: DropListItem[];
+  visibleDropCount: number;
 }
 
 export interface FolderTree {
-  folders: FolderNode[];   // all folders; render client picks roots/children via parentId
+  byId: Map<string, FolderNode>;
+  rootFolderIds: string[];
   rootDrops: DropListItem[];
 }
 
@@ -1021,65 +1092,40 @@ export async function listFolderTree(
   user: { id: string; email: string },
   opts: { mineOnly?: boolean } = {},
 ): Promise<FolderTree> {
-  const normEmail = normaliseEmail(user.email);
   const allFolders = await db.select().from(folders).orderBy(folders.name);
+  let visibleDrops = await listAllVisibleUnpaged(user); // alphabetical by name
+  if (opts.mineOnly) visibleDrops = visibleDrops.filter((d) => d.ownerId === user.id);
 
-  // Visible drops — either restricted to caller (mineOnly) or to the full visibility set.
-  const rows = await db.execute<{
-    d_id: string; owner_id: string; name: string; view_mode: string;
-    current_version: string | null; created_at: Date; updated_at: Date;
-    v_id: string | null; r2_prefix: string | null; byte_size: number | null;
-    file_count: number | null; v_created_at: Date | null;
-    username: string | null; folder_id: string | null;
-  }>(opts.mineOnly
-    ? sql`SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode, d.current_version,
-                 d.created_at, d.updated_at, d.folder_id,
-                 v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.created_at AS v_created_at,
-                 u.username
-          FROM drops d
-          INNER JOIN users u ON u.id = d.owner_id
-          LEFT JOIN drop_versions v ON v.id = d.current_version
-          WHERE d.owner_id = ${user.id}
-          ORDER BY d.updated_at DESC`
-    : sql`SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode, d.current_version,
-                 d.created_at, d.updated_at, d.folder_id,
-                 v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.created_at AS v_created_at,
-                 u.username
-          FROM drops d
-          INNER JOIN users u ON u.id = d.owner_id
-          LEFT JOIN drop_versions v ON v.id = d.current_version
-          WHERE d.owner_id = ${user.id}
-             OR d.view_mode = 'public'
-             OR d.view_mode = 'authed'
-             OR (d.view_mode = 'emails' AND EXISTS (
-                   SELECT 1 FROM drop_viewers dv WHERE dv.drop_id = d.id AND dv.email = ${normEmail}))
-          ORDER BY d.updated_at DESC`);
-
+  // Bucket drops by folder id (null = root).
   const dropsByFolder = new Map<string | null, DropListItem[]>();
-  for (const row of rows) {
-    const item: DropListItem = {
-      id: row.d_id, name: row.name, ownerId: row.owner_id,
-      viewMode: row.view_mode as any, currentVersion: row.current_version,
-      createdAt: row.created_at, updatedAt: row.updated_at,
-      version: row.v_id ? {
-        id: row.v_id, r2Prefix: row.r2_prefix!, byteSize: Number(row.byte_size!),
-        fileCount: row.file_count!, createdAt: row.v_created_at!,
-      } : null,
-      ownerUsername: row.username,
-    };
-    const key = row.folder_id;
+  for (const d of visibleDrops) {
+    const key = d.folderId;
     const list = dropsByFolder.get(key) ?? [];
-    list.push(item);
+    list.push(d);
     dropsByFolder.set(key, list);
   }
 
-  const folderNodes: FolderNode[] = allFolders.map((f) => ({
-    id: f.id, name: f.name, parentId: f.parentId,
-    drops: dropsByFolder.get(f.id) ?? [],
-  }));
+  // Build nodes without subtree counts first.
+  const byId = new Map<string, FolderNode>();
+  const childIdsByParent = new Map<string | null, string[]>();
+  for (const f of allFolders) {
+    const children = childIdsByParent.get(f.parentId) ?? [];
+    children.push(f.id);
+    childIdsByParent.set(f.parentId, children);
+  }
+  for (const f of allFolders) {
+    const drops = dropsByFolder.get(f.id) ?? [];
+    byId.set(f.id, {
+      id: f.id, name: f.name, parentId: f.parentId,
+      childFolderIds: childIdsByParent.get(f.id) ?? [],
+      drops,
+      visibleDropCount: drops.length,
+    });
+  }
 
   return {
-    folders: folderNodes,
+    byId,
+    rootFolderIds: childIdsByParent.get(null) ?? [],
     rootDrops: dropsByFolder.get(null) ?? [],
   };
 }
@@ -1096,7 +1142,108 @@ git commit -m "feat(folders): listFolderTree with per-viewer visibility"
 
 ---
 
-## Task 10 — Route: POST /app/folders (create)
+## Task 11 — Shared helpers: UUID guard + dashboard render-with-error
+
+**Files:**
+- Create: `src/lib/uuid.ts`
+- Create: `tests/unit/uuid.test.ts`
+- Create: `src/routes/app/dashboardView.ts`
+
+Two small pieces of shared infrastructure used by every folder route.
+
+**`isUuid` guard.** New routes accept UUIDs in `:id` and in body fields. Existing routes validate name-style slugs before hitting the DB (e.g. `src/routes/app/editDrop.ts:13`). Do the same for UUIDs so bad input returns 404/400 cleanly instead of 500.
+
+Unit test (`tests/unit/uuid.test.ts`):
+
+```ts
+// ABOUTME: Unit tests for the UUID v4 format guard used at route boundaries.
+// ABOUTME: Strict: rejects anything that isn't a 36-char canonical UUID.
+import { describe, it, expect } from 'vitest';
+import { isUuid } from '@/lib/uuid';
+
+describe('isUuid', () => {
+  it('accepts canonical UUIDs', () => {
+    expect(isUuid('3f2504e0-4f89-41d3-9a0c-0305e82c3301')).toBe(true);
+  });
+  it('rejects wrong length', () => { expect(isUuid('abc')).toBe(false); });
+  it('rejects missing hyphens', () => { expect(isUuid('3f2504e04f8941d39a0c0305e82c3301')).toBe(false); });
+  it('rejects non-hex characters', () => { expect(isUuid('zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz')).toBe(false); });
+  it('rejects empty string', () => { expect(isUuid('')).toBe(false); });
+});
+```
+
+Implementation (`src/lib/uuid.ts`):
+
+```ts
+// ABOUTME: Strict UUID format guard for route boundary validation.
+// ABOUTME: Matches any valid canonical UUID (any version); version-strict parsing is not needed here.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function isUuid(s: string): boolean { return UUID_RE.test(s); }
+```
+
+**Dashboard render-with-error helper.** The folder routes need to re-render `dashboard.ejs` with a banner when validation fails (see design plan). Centralise this so every route shares one implementation.
+
+`src/routes/app/dashboardView.ts`:
+
+```ts
+// ABOUTME: Shared dashboard render path used by the dashboard route and the folder routes on error.
+// ABOUTME: Takes an optional inline error banner and echoes the submitted form values back to the user.
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import { listFolderTree, type FolderTree } from '@/services/folders';
+import { formatBytes } from '@/lib/format';
+import { dropOriginFor } from '@/lib/dropHost';
+
+export interface DashboardRenderOptions {
+  banner?: { kind: 'error' | 'info'; message: string } | null;
+  form?: { kind: 'create-folder' | 'rename-folder' | 'move-folder'; values: Record<string, string> } | null;
+  statusCode?: number;
+}
+
+export interface FolderPathEntry { id: string; path: string }
+
+export function buildFolderPathList(tree: FolderTree): FolderPathEntry[] {
+  const out: FolderPathEntry[] = [];
+  function walk(id: string, prefix: string) {
+    const node = tree.byId.get(id);
+    if (!node) return;
+    const path = prefix ? `${prefix} / ${node.name}` : node.name;
+    out.push({ id, path });
+    for (const childId of node.childFolderIds) walk(childId, path);
+  }
+  for (const rootId of tree.rootFolderIds) walk(rootId, '');
+  return out;
+}
+
+export async function renderDashboard(
+  req: FastifyRequest, reply: FastifyReply, opts: DashboardRenderOptions = {},
+) {
+  const user = req.user!;
+  const mineOnly = (req.query as { mine?: string }).mine === '1';
+  const tree = await listFolderTree({ id: user.id, email: user.email }, { mineOnly });
+  const folderPathList = buildFolderPathList(tree);
+  if (opts.statusCode) reply.code(opts.statusCode);
+  return reply.view('dashboard.ejs', {
+    user, tree, mineOnly, folderPathList,
+    banner: opts.banner ?? null,
+    form: opts.form ?? null,
+    csrfToken: req.csrfToken ?? '',
+    formatBytes, dropOriginFor,
+  });
+}
+```
+
+`dashboard.ejs` reads `tree`, `folderPathList`, `banner`, and `form` (see Task 18). The view serialises `folderPathList` for the move popover as `<script>window.__folders = <%- JSON.stringify(folderPathList) %>;</script>`.
+
+**Step:** Run the UUID unit tests, then commit:
+
+```bash
+git add src/lib/uuid.ts tests/unit/uuid.test.ts src/routes/app/dashboardView.ts
+git commit -m "feat(folders): isUuid guard and shared dashboard render helper"
+```
+
+---
+
+## Task 12 — Route: POST /app/folders (create)
 
 **Files:**
 - Create: `src/routes/app/folders.ts`
@@ -1151,16 +1298,18 @@ describe('POST /app/folders', () => {
     expect(res.statusCode).toBe(403);
   });
 
-  it('400s on invalid name', async () => {
+  it('re-renders dashboard with 400 + inline banner on invalid name', async () => {
     const res = await app.inject({
       method: 'POST', url: '/app/folders',
       headers: { cookie: session.cookies, 'content-type': 'application/x-www-form-urlencoded', origin: 'https://app.test' },
       payload: `name=a%2Fb&_csrf=${session.csrf}`,
     });
     expect(res.statusCode).toBe(400);
+    expect(res.headers['content-type']).toMatch(/html/);
+    expect(res.body).toMatch(/Folder name is invalid/);
   });
 
-  it('400s on duplicate sibling name', async () => {
+  it('re-renders dashboard with 400 + inline banner on duplicate sibling name', async () => {
     await app.inject({
       method: 'POST', url: '/app/folders',
       headers: { cookie: session.cookies, 'content-type': 'application/x-www-form-urlencoded', origin: 'https://app.test' },
@@ -1172,6 +1321,17 @@ describe('POST /app/folders', () => {
       payload: `name=reports&_csrf=${session.csrf}`,
     });
     expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/already exists/);
+  });
+
+  it('re-renders dashboard with 400 + banner on malformed parentId (not a UUID)', async () => {
+    const res = await app.inject({
+      method: 'POST', url: '/app/folders',
+      headers: { cookie: session.cookies, 'content-type': 'application/x-www-form-urlencoded', origin: 'https://app.test' },
+      payload: `name=reports&parentId=not-a-uuid&_csrf=${session.csrf}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/Invalid folder reference/);
   });
 });
 ```
@@ -1182,30 +1342,61 @@ Inspect existing integration tests (e.g. `tests/integration/new-drop-form.test.t
 
 **Step 3: Implement the route.**
 
+The handler uses `renderDashboard` (Task 11) to re-render with an inline banner on validation errors, and validates `parentId` as a UUID at the boundary.
+
 `src/routes/app/folders.ts`:
 
 ```ts
-// ABOUTME: Folder HTTP routes on the app origin — create, rename, move, delete.
-// ABOUTME: All POSTs are CSRF-protected; 303 on success, 400 with an inline dashboard banner on validation errors.
+// ABOUTME: Folder HTTP routes on the app origin — create, rename, move, delete, plus setDropFolder.
+// ABOUTME: All POSTs are CSRF-protected; 303 on success, dashboard re-render with inline banner on validation errors.
 import type { FastifyPluginAsync } from 'fastify';
 import { requireCompletedMember } from '@/middleware/auth';
 import {
   createFolder, renameFolder, moveFolder, deleteFolderReparenting,
+  setDropFolder,
   FolderNameTaken, FolderNotFound, FolderCycle, FolderParentNotFound,
+  DropNotFound, DropNotVisible,
 } from '@/services/folders';
 import { InvalidFolderName } from '@/lib/folderName';
+import { isUuid } from '@/lib/uuid';
+import { renderDashboard } from '@/routes/app/dashboardView';
 
 export const folderRoutes: FastifyPluginAsync = async (app) => {
   app.post('/app/folders', { preHandler: requireCompletedMember }, async (req, reply) => {
     const user = req.user!;
     const body = req.body as { name?: string; parentId?: string };
+    const rawParent = body.parentId && body.parentId.length > 0 ? body.parentId : null;
+    if (rawParent !== null && !isUuid(rawParent)) {
+      return renderDashboard(req, reply, {
+        statusCode: 400,
+        banner: { kind: 'error', message: 'Invalid folder reference.' },
+        form: { kind: 'create-folder', values: { name: body.name ?? '', parentId: rawParent } },
+      });
+    }
     try {
-      const parentId = body.parentId && body.parentId.length > 0 ? body.parentId : null;
-      await createFolder(user.id, body.name ?? '', parentId);
+      await createFolder(user.id, body.name ?? '', rawParent);
       return reply.code(303).header('location', '/app').send();
     } catch (e) {
-      if (e instanceof InvalidFolderName || e instanceof FolderNameTaken || e instanceof FolderParentNotFound) {
-        return reply.code(400).send(e.message);
+      if (e instanceof InvalidFolderName) {
+        return renderDashboard(req, reply, {
+          statusCode: 400,
+          banner: { kind: 'error', message: 'Folder name is invalid. Use 1–64 characters, no slashes or control characters.' },
+          form: { kind: 'create-folder', values: { name: body.name ?? '', parentId: rawParent ?? '' } },
+        });
+      }
+      if (e instanceof FolderNameTaken) {
+        return renderDashboard(req, reply, {
+          statusCode: 400,
+          banner: { kind: 'error', message: 'A folder with that name already exists here.' },
+          form: { kind: 'create-folder', values: { name: body.name ?? '', parentId: rawParent ?? '' } },
+        });
+      }
+      if (e instanceof FolderParentNotFound) {
+        return renderDashboard(req, reply, {
+          statusCode: 400,
+          banner: { kind: 'error', message: 'Parent folder not found.' },
+          form: { kind: 'create-folder', values: { name: body.name ?? '' } },
+        });
       }
       throw e;
     }
@@ -1232,13 +1423,13 @@ git commit -m "feat(folders): POST /app/folders"
 
 ---
 
-## Task 11 — Route: POST /app/folders/:id/rename
+## Task 13 — Route: POST /app/folders/:id/rename
 
 **Files:**
 - Modify: `src/routes/app/folders.ts`
 - Modify: `tests/integration/folders-routes.test.ts`
 
-**Step 1: Add failing tests for rename.** Cover success, 400 on invalid name, 400 on collision, 404 on missing, 403 on missing CSRF.
+**Step 1: Add failing tests** covering: success (303 + row renamed); 404 on malformed `:id` (not a UUID); 404 on unknown id; 400 with banner on invalid name; 400 with banner on sibling collision; 403 on missing CSRF.
 
 **Step 2: Run.**
 
@@ -1248,18 +1439,32 @@ git commit -m "feat(folders): POST /app/folders"
 app.post('/app/folders/:id/rename', { preHandler: requireCompletedMember }, async (req, reply) => {
   const { id } = req.params as { id: string };
   const body = req.body as { name?: string };
+  if (!isUuid(id)) return reply.code(404).send('not_found');
   try {
     await renameFolder(id, body.name ?? '');
     return reply.code(303).header('location', '/app').send();
   } catch (e) {
-    if (e instanceof InvalidFolderName || e instanceof FolderNameTaken) return reply.code(400).send(e.message);
+    if (e instanceof InvalidFolderName) {
+      return renderDashboard(req, reply, {
+        statusCode: 400,
+        banner: { kind: 'error', message: 'Folder name is invalid. Use 1–64 characters, no slashes or control characters.' },
+        form: { kind: 'rename-folder', values: { id, name: body.name ?? '' } },
+      });
+    }
+    if (e instanceof FolderNameTaken) {
+      return renderDashboard(req, reply, {
+        statusCode: 400,
+        banner: { kind: 'error', message: 'A folder with that name already exists here.' },
+        form: { kind: 'rename-folder', values: { id, name: body.name ?? '' } },
+      });
+    }
     if (e instanceof FolderNotFound) return reply.code(404).send('not_found');
     throw e;
   }
 });
 ```
 
-**Step 4: Run.** **Step 5: Commit.**
+**Step 4: Run. Step 5: Commit.**
 
 ```bash
 git commit -am "feat(folders): POST /app/folders/:id/rename"
@@ -1267,9 +1472,9 @@ git commit -am "feat(folders): POST /app/folders/:id/rename"
 
 ---
 
-## Task 12 — Route: POST /app/folders/:id/move
+## Task 14 — Route: POST /app/folders/:id/move
 
-Same shape as Task 11. Tests cover: move to root (empty `parentId`), move under a parent, 400 on cycle, 400 on collision, 404 on missing.
+Tests cover: move to root (empty `parentId`); move under a parent; 400 with banner on cycle; 400 with banner on collision; 404 on malformed `:id`; 404 on unknown folder; 403 when the CSRF token is missing from the form submission.
 
 Handler:
 
@@ -1277,13 +1482,35 @@ Handler:
 app.post('/app/folders/:id/move', { preHandler: requireCompletedMember }, async (req, reply) => {
   const { id } = req.params as { id: string };
   const body = req.body as { parentId?: string };
-  const parentId = body.parentId && body.parentId.length > 0 ? body.parentId : null;
+  if (!isUuid(id)) return reply.code(404).send('not_found');
+  const rawParent = body.parentId && body.parentId.length > 0 ? body.parentId : null;
+  if (rawParent !== null && !isUuid(rawParent)) {
+    return renderDashboard(req, reply, {
+      statusCode: 400,
+      banner: { kind: 'error', message: 'Invalid folder reference.' },
+    });
+  }
   try {
-    await moveFolder(id, parentId);
+    await moveFolder(id, rawParent);
     return reply.code(303).header('location', '/app').send();
   } catch (e) {
-    if (e instanceof FolderCycle || e instanceof FolderNameTaken || e instanceof FolderParentNotFound) {
-      return reply.code(400).send(e.message);
+    if (e instanceof FolderCycle) {
+      return renderDashboard(req, reply, {
+        statusCode: 400,
+        banner: { kind: 'error', message: 'A folder can\'t be moved inside itself or one of its subfolders.' },
+      });
+    }
+    if (e instanceof FolderNameTaken) {
+      return renderDashboard(req, reply, {
+        statusCode: 400,
+        banner: { kind: 'error', message: 'The target folder already contains a folder with that name.' },
+      });
+    }
+    if (e instanceof FolderParentNotFound) {
+      return renderDashboard(req, reply, {
+        statusCode: 400,
+        banner: { kind: 'error', message: 'The target folder no longer exists. Pick another destination.' },
+      });
     }
     if (e instanceof FolderNotFound) return reply.code(404).send('not_found');
     throw e;
@@ -1295,15 +1522,16 @@ Commit: `git commit -am "feat(folders): POST /app/folders/:id/move"`
 
 ---
 
-## Task 13 — Route: POST /app/folders/:id/delete
+## Task 15 — Route: POST /app/folders/:id/delete
 
-Tests: success (empty), success with reparent, 404 on missing.
+Tests: success (empty); success with reparent + drops bubble up; 404 on malformed `:id`; 404 on unknown folder; 403 when the CSRF token is missing from the form submission. One explicit test: deleting a folder containing a hidden (`emails`-mode) drop the actor can't see — the transaction must still move that drop up to the parent, and the dashboard the actor saw before the delete reported `visibleDropCount = 0` for that folder (i.e. never mentioned the hidden drop).
 
 Handler:
 
 ```ts
 app.post('/app/folders/:id/delete', { preHandler: requireCompletedMember }, async (req, reply) => {
   const { id } = req.params as { id: string };
+  if (!isUuid(id)) return reply.code(404).send('not_found');
   try {
     await deleteFolderReparenting(id);
     return reply.code(303).header('location', '/app').send();
@@ -1318,30 +1546,34 @@ Commit: `git commit -am "feat(folders): POST /app/folders/:id/delete"`
 
 ---
 
-## Task 14 — Route: POST /app/drops/:id/folder
+## Task 16 — Route: POST /app/drops/:id/folder
 
 **Files:**
-- Modify: `src/routes/app/folders.ts` (or a new file if preferred — the domain is "filing a drop", which fits here)
-- Create/modify: `tests/integration/folders-routes.test.ts` (append `describe('POST /app/drops/:id/folder', ...)`)
+- Modify: `src/routes/app/folders.ts`
+- Modify: `tests/integration/folders-routes.test.ts`
 
-Tests cover: file a drop I own, unfile (folderId empty), file someone else's `public` drop (succeeds), file someone else's `emails` drop I'm not on (403 or 404 — pick one and stick with it; I'd pick 404 to avoid leaking the drop's existence), 403 on missing CSRF.
+Tests cover: file own drop (success); unfile (empty `folderId` → null); file another owner's `public`/`authed` drop (success); file another owner's `emails` drop the actor is not listed on (404 — returning 403 would confirm the drop exists); 404 on malformed `:id`; 404 on unknown drop id; dashboard re-render with 400 + banner on unknown/malformed folder id (the folder namespace isn't secret, so it's treated as a stale UI selection); 403 on missing CSRF.
 
 Handler:
 
 ```ts
-import { setDropFolder, DropNotVisible, DropNotFound } from '@/services/folders';
-
 app.post('/app/drops/:id/folder', { preHandler: requireCompletedMember }, async (req, reply) => {
   const user = req.user!;
   const { id } = req.params as { id: string };
   const body = req.body as { folderId?: string };
-  const folderId = body.folderId && body.folderId.length > 0 ? body.folderId : null;
+  if (!isUuid(id)) return reply.code(404).send('not_found');
+  const rawFolder = body.folderId && body.folderId.length > 0 ? body.folderId : null;
+  const staleFolderBanner = () => renderDashboard(req, reply, {
+    statusCode: 400,
+    banner: { kind: 'error', message: 'The target folder no longer exists. Pick another destination.' },
+  });
+  if (rawFolder !== null && !isUuid(rawFolder)) return staleFolderBanner();
   try {
-    await setDropFolder({ id: user.id, email: user.email }, id, folderId);
+    await setDropFolder({ id: user.id, email: user.email }, id, rawFolder);
     return reply.code(303).header('location', '/app').send();
   } catch (e) {
     if (e instanceof DropNotFound || e instanceof DropNotVisible) return reply.code(404).send('not_found');
-    if (e instanceof FolderNotFound) return reply.code(400).send('folder_not_found');
+    if (e instanceof FolderNotFound) return staleFolderBanner();
     throw e;
   }
 });
@@ -1351,90 +1583,94 @@ Commit: `git commit -am "feat(folders): POST /app/drops/:id/folder"`
 
 ---
 
-## Task 15 — Dashboard: tree + ?mine=1
+## Task 17 — Dashboard route: consume the view model
 
 **Files:**
 - Modify: `src/routes/app/dashboard.ts`
-- Modify: `tests/integration/dashboard.test.ts` (or create `tests/integration/dashboard-folders.test.ts`)
+- Create: `tests/integration/dashboard-folders.test.ts`
 
-**Step 1: Write a failing test** that GETs `/app` after seeding a folder and a drop; asserts the HTML contains the folder name and the drop name, that `?mine=1` excludes another owner's drop, and that folder badge counts reflect per-viewer visibility.
+**Step 1:** Write failing integration tests using the inject pattern (match `tests/integration/dashboard.test.ts`):
 
-**Step 2: Run to confirm failure.**
+- GET `/app` renders the folder name in the HTML when the caller has a folder seeded.
+- GET `/app` renders a drop inside its folder.
+- GET `/app?mine=1` hides another owner's visible drop but still renders that owner's folder.
+- Folder badge reflects visible count (e.g. is "0" for a `mine=1` request on a folder containing only someone else's drops).
+- `emails`-mode drops hidden from the viewer don't appear in the HTML, and their folder badge reads "0" or the count sans hidden drops.
 
-**Step 3: Update the route.**
+**Step 2:** Run — expect failure.
+
+**Step 3:** Update the route to use `renderDashboard`:
 
 ```ts
-import { listFolderTree } from '@/services/folders';
+// src/routes/app/dashboard.ts
+import { renderDashboard } from '@/routes/app/dashboardView';
 
 export const dashboardRoute: FastifyPluginAsync = async (app) => {
   app.get('/app', { preHandler: requireCompletedMember }, async (req, reply) => {
-    const user = req.user!;
-    const mineOnly = (req.query as { mine?: string }).mine === '1';
-    const tree = await listFolderTree({ id: user.id, email: user.email }, { mineOnly });
-    return reply.view('dashboard.ejs', {
-      user,
-      tree,
-      mineOnly,
-      csrfToken: req.csrfToken ?? '',
-      formatBytes,
-      dropOriginFor,
-    });
+    return renderDashboard(req, reply);
   });
 };
 ```
 
-**Step 4 & 5:** the dashboard view (Task 16) consumes `tree` + `mineOnly` — tests will stay red until the view lands. Skip to Task 16 before running the dashboard tests.
+This route and the folder routes now share exactly one render path.
 
-Commit once Task 16 green: grouped in Task 16's commit.
+**Step 4:** Tests stay red until Task 18 lands the view. Run after Task 18.
 
 ---
 
-## Task 16 — Dashboard view: unified tree
+## Task 18 — Dashboard view: unified tree
 
 **Files:**
 - Modify: `src/views/dashboard.ejs`
 - Create: `src/views/_folderNode.ejs`
 - Modify: `src/views/static/style.css`
+- Create: `tests/e2e/folders.spec.ts`
 
-**Step 1:** Write a failing Playwright test in `tests/e2e/folders.spec.ts`:
+**Step 1: Write a failing e2e smoke test** at `tests/e2e/folders.spec.ts` using the existing Playwright-as-harness pattern (see `tests/e2e/drop.spec.ts:1-40` — env setup → `buildServer()` → `app.inject()`; this is NOT a browser-driven test). The test seeds a member, creates a folder via `POST /app/folders`, creates a drop via the existing drop-creation path, files it with `POST /app/drops/:id/folder`, then GETs `/app` and asserts the drop's HTML sits inside the folder's block. Then `POST /app/folders/:id/delete` and re-GET `/app`, assert the drop now sits at root.
 
-```ts
-// ABOUTME: E2E smoke for the folder UI: create folder, file a drop, toggle mine-only, delete non-empty folder.
-// ABOUTME: Runs against the dev server wired up by the playwright config.
-import { test, expect } from '@playwright/test';
+This file runs under `pnpm test:e2e` as the design plan specifies. No `webServer`/`baseURL` is needed — the existing Playwright spec doesn't use the browser either.
 
-test('folder create + file + delete round trip', async ({ page }) => {
-  // TODO: reuse the existing e2e auth fixture to log in as a seeded member
-  // ... (copy from drop.spec.ts)
-  await page.goto('/app');
-  await page.getByRole('button', { name: /new folder/i }).click();
-  await page.getByLabel(/name/i).fill('reports');
-  await page.getByRole('button', { name: /create/i }).click();
-  await expect(page.getByText('reports')).toBeVisible();
-  // ... file an existing drop into the folder via the move popover
-  // ... assert the drop now renders under the folder
-  // ... delete the folder via the confirm modal
-  // ... assert the drop is back at root
-});
-```
-
-Seed helpers may need a small extension to create a pre-existing drop for the fixture user.
-
-**Step 2:** Run `pnpm test:e2e` — expect failure.
+**Step 2:** Run — expect failure (view doesn't render the tree yet).
 
 **Step 3:** Implement the view.
 
-- Render a `New folder` button alongside `New drop` in the page head.
-- Render a `Mine only` checkbox that GETs `/app?mine=1` (or `/app`) on change. Plain `<form method=get>` — no JS state.
-- Render the tree with a recursive partial `_folderNode.ejs` that emits: a folder row (name, visible-count badge, action icons) plus its children (subfolders first, then drops).
-- Render `tree.rootFolders` (folders where `parentId === null`) at the top level, then `tree.rootDrops`.
-- Drop rows always show an owner pill (even for own drops — consistent). Suppress `Edit` for drops where `d.ownerId !== user.id`.
-- Add a `<dialog>` (or visually styled modal) for the delete confirmation; populate copy with folder name, counts, and destination from data attributes on the trigger.
-- Add a move popover that lists every folder as an indented path plus `— root —`. Populate client-side from a `window.__folders` JSON blob the view inlines from `tree.folders`.
+Required affordances, each concrete:
 
-Server-side helper: precompute `rootFolders`, and for each folder a sorted list of direct child folder IDs. Shortest route is to pass the whole `tree.folders` to the view and let the partial filter `parentId`-by-`parentId` as it recurses.
+- **`New folder` modal** (button in the page head, next to `New drop`). The modal wraps a `<form method="post" action="/app/folders">` with:
+  - `<input name="name">` (text, required, maxlength 64)
+  - `<select name="parentId">` with options built from `folderPathList` — first option `<option value="">— root —</option>`, then one option per entry (value = `id`, label = `path`)
+  - hidden `_csrf` input
+  The modal opens via a button that toggles the `<dialog>` `[open]` attribute; no JS framework, just a small `<script>` snippet that wires click → `dialog.showModal()`.
+  On 400 re-render with `form.kind === 'create-folder'`, the modal opens on page load (check `form.kind` in EJS and call `showModal()` in an inline script), the `name` input is prefilled with `form.values.name`, and the `parentId` select has `form.values.parentId` preselected. The banner sits above the main content.
 
-**Step 4:** Run the dashboard integration test (Task 15) and the Playwright test. Both should pass.
+- **Rename affordance.** Each folder row has a `✎` icon button that reveals an inline `<form method="post" action="/app/folders/:id/rename">` with a text input prefilled with the current name and a save/cancel button. Server-rendered; toggled open/closed with a CSS-only `[open]` attribute on a wrapping `<details>`, no JS. On 400 re-render with `form.kind === 'rename-folder'`, the row whose `id === form.values.id` renders with its rename form expanded and the input prefilled.
+
+- **Move popover** (folder or drop). Click `⇆` on the row → a popover listing every entry in `folderPathList` plus `— root —`. Picking an option submits a tiny form — `POST /app/folders/:id/move` for a folder, `POST /app/drops/:id/folder` for a drop. `form.kind === 'move-folder'` doesn't need to reopen the popover on re-render (the banner carries the error; the user picks again).
+
+- **Delete confirmation.** A `<dialog>` populated from the trigger's data attributes with the folder's name, direct `visibleDropCount`, direct `childFolderIds.length`, and the destination folder name (parent or "root"). Form posts to `/app/folders/:id/delete`.
+
+- **Empty-folder placeholder.** When a folder's `visibleDropCount === 0` and `childFolderIds.length === 0`, the partial emits a single muted `<div class="empty">(empty)</div>` in place of where the child list would go. Applies to `mine=1` and `emails`-hidden cases too — a folder that's populated globally but empty for this viewer still renders `(empty)`.
+
+- **`Mine only` checkbox** inside `<form method="get" action="/app">` that submits on change (or a plain link toggle). No JS state.
+
+- **Banner.** If `banner` is set, render `<div class="banner banner-<%= banner.kind %>"><%= banner.message %></div>` at the top of the page.
+
+- **Recursive partial.** `_folderNode.ejs` takes a `node` (a `FolderNode`) and `tree`; emits the folder row (name, `visibleDropCount` badge, icon actions, rename form) and either the empty placeholder or a children block (subfolders via recursion through `tree.byId.get(childId)`, then drops). Called once per `tree.rootFolderIds` entry from `dashboard.ejs`.
+
+- **Drop rows.** Preserve the existing drop-row rendering from today's dashboard: the per-drop host URL (via `dropOriginFor(ownerUsername, name)`), file count, size bar (via `formatBytes`), and the `public`/`list` tag when applicable. Owner pill always rendered (mixed-owner tree). Suppress `Edit` when `d.ownerId !== user.id`. Actions: open, move, (edit for own).
+
+- **Folder path list** inlined for the move popover as `<script>window.__folders = <%- JSON.stringify(folderPathList) %>;</script>`.
+
+The render helper (Task 11) already computes `folderPathList`. This task does not modify `src/routes/app/dashboardView.ts`.
+
+Tests to add for the view (integration, not e2e) beyond Task 17's:
+
+- Empty folder with no drops and no subfolders renders the `(empty)` placeholder.
+- Folder with only drops hidden from the current viewer renders `(empty)` for that viewer and the full content for an authorised viewer.
+- 400 re-render with `form.kind === 'rename-folder'` emits the rename form expanded on the right row with the submitted name prefilled.
+- 400 re-render with `form.kind === 'create-folder'` opens the new-folder modal with the submitted name prefilled.
+
+**Step 4:** Run `pnpm test` — Task 17's dashboard tests and Task 18's view tests should now pass.
 
 **Step 5: Commit.**
 
@@ -1445,7 +1681,33 @@ git commit -m "feat(folders): dashboard tree, mine-only toggle, move/delete UX"
 
 ---
 
-## Task 17 — Sweep: verify full suite + typecheck + lint
+## Task 19 — Design-critical test coverage
+
+**Files:**
+- Modify: `tests/integration/folders.test.ts`
+- Modify: `tests/integration/folders-routes.test.ts` or a new `tests/integration/folders-safety.test.ts`
+
+Covers the design-plan test cases that aren't exercised by earlier tasks.
+
+**Case A — Advisory-lock race.** Two concurrent `moveFolder` calls that would together create a cycle. Start with `A → B → C` (A is a child of B; B is a child of C, i.e. A is a descendant of B). Spawn two promises: `moveFolder(C, A.id)` and `moveFolder(A, C.id)` concurrently. With the lock, both transactions serialise; the one that runs second sees the tree after the first and rejects with `FolderCycle`. Without the lock, both could pass their cycle check and produce a cycle. Assert that exactly one of the two rejects with `FolderCycle` and that the surviving tree is acyclic (walk ancestors from every folder, expect no revisits).
+
+**Case B — Hidden-drop reparenting.** Seed owner O with an `emails`-mode drop D inside folder F, not listed for viewer V. V calls `POST /app/folders/:id/delete` on F. Assert (via a direct DB read) that D's `folder_id` now matches F's parent (or null). V's subsequent GET `/app` doesn't mention D; O's GET `/app` shows D at the new location.
+
+**Case C — `ON DELETE SET NULL` safety net.** Insert a drop into a folder. Delete the folder row directly (`db.delete(folders).where(...)`) bypassing the service. Assert the drop's `folder_id` is now `NULL` and the row still exists.
+
+**Case D — Delete-confirmation copy has no hidden caveat.** The design forbids leaking hidden drops in the confirmation. Seed a folder with one visible + one hidden drop, render `/app` as the viewer who can only see the visible one, then inspect the HTML (or the dialog's data attributes). Assert the copy mentions "1 drop" and does not contain any "other drops you don't have access to" or similar caveat. Assert the HTML contains no reference to the hidden drop's name.
+
+**Case E — Structural mutation error surfaces the right banner copy.** A rename to a colliding sibling triggers the dashboard re-render with the "already exists" banner. Captured as part of Task 13's tests — explicit check here guards against copy regressions.
+
+**Commit.**
+
+```bash
+git commit -am "test(folders): advisory-lock race, hidden reparent, ON DELETE SET NULL, banner copy"
+```
+
+---
+
+## Task 20 — Sweep: verify full suite + typecheck + lint
 
 **Step 1:** Run the full suite.
 
