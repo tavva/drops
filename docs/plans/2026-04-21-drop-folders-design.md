@@ -24,7 +24,7 @@ New table `folders`:
 | `id` | uuid PK | `gen_random_uuid()` |
 | `name` | text not null | validated (see below) |
 | `parent_id` | uuid null | FK → `folders(id)` `ON DELETE RESTRICT`; reparenting handled in code |
-| `created_by` | uuid not null | FK → `users(id)`; attribution only |
+| `created_by` | uuid null | FK → `users(id)` `ON DELETE SET NULL`; attribution only — folder survives the creator's removal |
 | `created_at` | timestamptz not null | default `now()` |
 
 Constraints and indexes:
