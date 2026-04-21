@@ -140,3 +140,119 @@ describe('POST /app/folders', () => {
     expect(res.body).toMatch(/Invalid folder reference/);
   });
 });
+
+async function createViaPost(name: string, parentId?: string) {
+  const payload = parentId
+    ? `name=${encodeURIComponent(name)}&parentId=${parentId}&_csrf=${csrfToken}`
+    : `name=${encodeURIComponent(name)}&_csrf=${csrfToken}`;
+  const res = await appInstance.inject({
+    method: 'POST', url: '/app/folders',
+    headers: {
+      host: 'drops.localtest.me',
+      origin: config.APP_ORIGIN,
+      'content-type': 'application/x-www-form-urlencoded',
+      cookie: await cookieHeader(),
+    },
+    payload,
+  });
+  expect(res.statusCode).toBe(303);
+}
+
+describe('POST /app/folders/:id/rename', () => {
+  it('renames a folder and 303s', async () => {
+    await createViaPost('reports');
+    const [row] = await db.select().from(folders).where(eq(folders.name, 'reports'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${row!.id}/rename`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `name=archive&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const [after] = await db.select().from(folders).where(eq(folders.id, row!.id));
+    expect(after!.name).toBe('archive');
+  });
+
+  it('404s on a malformed id', async () => {
+    const res = await appInstance.inject({
+      method: 'POST', url: '/app/folders/not-a-uuid/rename',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `name=x&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('404s on an unknown folder', async () => {
+    const res = await appInstance.inject({
+      method: 'POST', url: '/app/folders/00000000-0000-0000-0000-000000000000/rename',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `name=x&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('400s with banner on invalid name', async () => {
+    await createViaPost('reports');
+    const [row] = await db.select().from(folders).where(eq(folders.name, 'reports'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${row!.id}/rename`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `name=a%2Fb&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/Folder name is invalid/);
+  });
+
+  it('400s with banner on sibling collision', async () => {
+    await createViaPost('reports');
+    await createViaPost('archive');
+    const [row] = await db.select().from(folders).where(eq(folders.name, 'archive'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${row!.id}/rename`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `name=reports&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/already exists/);
+  });
+
+  it('403s on missing CSRF token', async () => {
+    await createViaPost('reports');
+    const [row] = await db.select().from(folders).where(eq(folders.name, 'reports'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${row!.id}/rename`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `drops_session=${signedSid}`,
+      },
+      payload: `name=archive`,
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
