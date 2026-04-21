@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '@/db';
 import { folders, users, drops, dropViewers } from '@/db/schema';
-import { createFolder, renameFolder } from '@/services/folders';
+import { createFolder, renameFolder, moveFolder } from '@/services/folders';
 import { InvalidFolderName } from '@/lib/folderName';
 
 async function resetAll() {
@@ -104,6 +104,49 @@ describe('renameFolder', () => {
   it('throws FolderNotFound for a missing id', async () => {
     await expect(renameFolder('00000000-0000-0000-0000-000000000000', 'x'))
       .rejects.toThrow(/folder not found/i);
+  });
+});
+
+describe('moveFolder', () => {
+  let userId: string;
+  beforeEach(async () => {
+    await resetAll();
+    const u = await insertUser({ email: 'a@x.test', username: 'alice' });
+    userId = u.id;
+  });
+
+  it('moves a folder to a new parent', async () => {
+    const a = await createFolder(userId, 'a');
+    const b = await createFolder(userId, 'b');
+    const moved = await moveFolder(b.id, a.id);
+    expect(moved.parentId).toBe(a.id);
+  });
+
+  it('moves a folder to root', async () => {
+    const a = await createFolder(userId, 'a');
+    const b = await createFolder(userId, 'b', a.id);
+    const moved = await moveFolder(b.id, null);
+    expect(moved.parentId).toBeNull();
+  });
+
+  it('rejects moving a folder into itself', async () => {
+    const a = await createFolder(userId, 'a');
+    await expect(moveFolder(a.id, a.id)).rejects.toThrow(/cycle/i);
+  });
+
+  it('rejects moving a folder into its own descendant', async () => {
+    const a = await createFolder(userId, 'a');
+    const b = await createFolder(userId, 'b', a.id);
+    const c = await createFolder(userId, 'c', b.id);
+    await expect(moveFolder(a.id, c.id)).rejects.toThrow(/cycle/i);
+  });
+
+  it('rejects sibling-name collision at the new parent', async () => {
+    const a = await createFolder(userId, 'a');
+    const b = await createFolder(userId, 'b');
+    await createFolder(userId, 'dup', a.id);
+    const dupAtRoot = await createFolder(userId, 'dup', b.id);
+    await expect(moveFolder(dupAtRoot.id, a.id)).rejects.toThrow(/name taken/i);
   });
 });
 

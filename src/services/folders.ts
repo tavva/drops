@@ -90,6 +90,41 @@ export async function createFolder(userId: string, rawName: string, parentId?: s
   });
 }
 
+async function isDescendantOf(tx: Tx, candidateAncestor: string, start: string | null): Promise<boolean> {
+  let cur = start;
+  const seen = new Set<string>();
+  while (cur) {
+    if (cur === candidateAncestor) return true;
+    if (seen.has(cur)) return false;
+    seen.add(cur);
+    const rows = await tx.select({ parentId: folders.parentId }).from(folders).where(eq(folders.id, cur));
+    if (rows.length === 0) return false;
+    cur = rows[0]!.parentId;
+  }
+  return false;
+}
+
+export async function moveFolder(id: string, newParentId: string | null): Promise<Folder> {
+  return db.transaction(async (tx) => {
+    await acquireStructuralLock(tx);
+    const existing = await tx.select().from(folders).where(eq(folders.id, id));
+    if (existing.length === 0) throw new FolderNotFound();
+    if (newParentId === id) throw new FolderCycle();
+    if (newParentId != null) {
+      const parent = await tx.select().from(folders).where(eq(folders.id, newParentId));
+      if (parent.length === 0) throw new FolderParentNotFound();
+      if (await isDescendantOf(tx, id, newParentId)) throw new FolderCycle();
+    }
+    try {
+      const [row] = await tx.update(folders).set({ parentId: newParentId }).where(eq(folders.id, id)).returning();
+      return toFolder(row!);
+    } catch (e: unknown) {
+      if (isUniqueViolation(e)) throw new FolderNameTaken();
+      throw e;
+    }
+  });
+}
+
 export async function renameFolder(id: string, rawName: string): Promise<Folder> {
   const name = cleanFolderName(rawName);
   return db.transaction(async (tx) => {
