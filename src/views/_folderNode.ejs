@@ -1,0 +1,58 @@
+<%
+// Recursive folder node partial.
+// Locals: node (FolderNode), tree (FolderTree), user, csrfToken, folderPathList,
+//         formatBytes, dropOriginFor, form (nullable rename form state).
+const isEmpty = node.visibleDropCount === 0 && node.childFolderIds.length === 0;
+const renameOpen = form && form.kind === 'rename-folder' && form.values.id === node.id;
+%>
+<div class="folder-node" data-folder-id="<%= node.id %>">
+  <div class="folder-row">
+    <span class="folder-name"><%= node.name %></span>
+    <span class="folder-badge"><%= node.visibleDropCount %></span>
+    <span class="folder-actions">
+      <details class="rename-details"<% if (renameOpen) { %> open<% } %>>
+        <summary class="icon-btn" title="rename">✎</summary>
+        <form method="post" action="/app/folders/<%= node.id %>/rename" class="inline-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <input type="text" name="name" maxlength="64" value="<%= renameOpen ? form.values.name : node.name %>" required>
+          <button type="submit">Save</button>
+        </form>
+      </details>
+      <details class="move-details">
+        <summary class="icon-btn" title="move">⇆</summary>
+        <form method="post" action="/app/folders/<%= node.id %>/move" class="inline-form">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+          <select name="parentId">
+            <option value="">— root —</option>
+            <% folderPathList.forEach(function(entry) { if (entry.id !== node.id) { %>
+              <option value="<%= entry.id %>"<% if (node.parentId === entry.id) { %> selected<% } %>><%= entry.path %></option>
+            <% } }) %>
+          </select>
+          <button type="submit">Move</button>
+        </form>
+      </details>
+      <form method="post" action="/app/folders/<%= node.id %>/delete" class="inline-form"
+            data-folder-name="<%= node.name %>"
+            data-visible-drop-count="<%= node.visibleDropCount %>"
+            data-child-folder-count="<%= node.childFolderIds.length %>"
+            onsubmit="return confirm('Delete folder ‘<%= node.name %>’? <%= node.visibleDropCount %> drop(s) and <%= node.childFolderIds.length %> subfolder(s) will move up one level.');">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <button type="submit" class="icon-btn" title="delete">🗑</button>
+      </form>
+    </span>
+  </div>
+  <div class="folder-contents">
+    <% if (isEmpty) { %>
+      <div class="empty">(empty)</div>
+    <% } else { %>
+      <% node.childFolderIds.forEach(function(childId) { %>
+        <% const child = tree.byId.get(childId); if (child) { %>
+          <%- include('_folderNode', { node: child, tree, user, csrfToken, folderPathList, formatBytes, dropOriginFor, form }) %>
+        <% } %>
+      <% }) %>
+      <% node.drops.forEach(function(d) { %>
+        <%- include('_dropRow', { d, user, csrfToken, folderPathList, formatBytes, dropOriginFor }) %>
+      <% }) %>
+    <% } %>
+  </div>
+</div>

@@ -1,0 +1,36 @@
+<%
+// Drop row partial.
+// Locals: d (DropListItem), user, csrfToken, folderPathList, formatBytes, dropOriginFor.
+const isOwner = d.ownerId === user.id;
+const hostUrl = d.ownerUsername ? dropOriginFor(d.ownerUsername, d.name) : null;
+%>
+<div class="drop-row" data-drop-id="<%= d.id %>" data-drop-name="<%= d.name %>">
+  <span class="drop-name"><a href="<%= hostUrl ? hostUrl + '/' : '#' %>" target="_blank" rel="noreferrer"><%= d.name %></a></span>
+  <% if (d.viewMode === 'public') { %><span class="tag">public</span><% } else if (d.viewMode === 'emails') { %><span class="tag">list</span><% } %>
+  <% if (d.ownerUsername) { %>
+    <span class="owner-pill"><%= d.ownerUsername %></span>
+  <% } %>
+  <span class="drop-meta">
+    <%= d.version ? d.version.fileCount : '—' %> files ·
+    <%= d.version ? formatBytes(d.version.byteSize) : '—' %>
+  </span>
+  <span class="drop-actions">
+    <% if (hostUrl) { %><a class="icon-btn" href="<%= hostUrl %>/" title="open" target="_blank" rel="noreferrer">↗</a><% } %>
+    <details class="move-details">
+      <summary class="icon-btn" title="move">⇆</summary>
+      <form method="post" action="/app/drops/<%= d.id %>/folder" class="inline-form">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+        <select name="folderId">
+          <option value="">— root —</option>
+          <% folderPathList.forEach(function(entry) { %>
+            <option value="<%= entry.id %>"<% if (d.folderId === entry.id) { %> selected<% } %>><%= entry.path %></option>
+          <% }) %>
+        </select>
+        <button type="submit">Move</button>
+      </form>
+    </details>
+    <% if (isOwner) { %>
+      <a class="icon-btn" href="/app/drops/<%= d.name %>" title="edit">✎</a>
+    <% } %>
+  </span>
+</div>

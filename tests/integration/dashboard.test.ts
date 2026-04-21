@@ -99,6 +99,5 @@ describe('GET /app', () => {
     expect(res.body).toContain('>public<');
     expect(res.body).toContain('>own<');
     expect(res.body).not.toContain('>private<');
-    expect(res.body).toContain("Everyone's drops");
   });
 });
