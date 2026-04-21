@@ -1,0 +1,40 @@
+<% /* notAllowed.ejs — shown when OAuth succeeded but the email isn't on any allowlist. */ %>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>No access — drops</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 32'><path d='M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z' fill='%23ff5a3c'/><ellipse cx='8.5' cy='18' rx='2.2' ry='3' fill='%23ffd9cf' opacity='0.55'/></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="/app/static/style.css">
+  </head>
+  <body>
+    <div class="auth-wrap">
+      <div class="auth-card">
+        <div class="auth-logo">
+          <svg viewBox="0 0 24 32" aria-hidden="true">
+            <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
+            <ellipse class="hl" cx="8.5" cy="18" rx="2.2" ry="3"/>
+          </svg>
+        </div>
+        <h1>No access</h1>
+        <p class="deck">
+          You're signed in as <strong><%= email %></strong>, but that account
+          isn't on the access list for this site.
+        </p>
+        <p class="deck">
+          If someone shared a link with you, ask them to add
+          <code><%= email %></code> as a viewer — or try again with the Google
+          account the link was shared with.
+        </p>
+        <div class="actions">
+          <a class="btn primary" href="/auth/login?next=<%= encodeURIComponent(next) %>">Try a different account →</a>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -93,9 +93,10 @@ export const callbackRoute: FastifyPluginAsync = async (app) => {
 
     const isMember = await isMemberEmail(identity.email);
     const isViewer = !isMember && await canSignInAsViewer(identity.email);
-    if (!isMember && !isViewer) return reply.code(403).send('not_allowed');
-
     const nextUrl = allowedNext(parsed.next);
+    if (!isMember && !isViewer) {
+      return reply.code(403).view('notAllowed.ejs', { email: identity.email, next: nextUrl });
+    }
     const existing = await findByEmail(identity.email);
 
     if (existing) {
