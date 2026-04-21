@@ -1,9 +1,10 @@
 // ABOUTME: Folder CRUD + tree operations. Structural mutations take a transaction-scoped advisory lock.
 // ABOUTME: resolveReparentName is exported for unit testing of the delete-time collision rule.
-import { eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { drops, folders } from '@/db/schema';
+import { drops, dropViewers, folders } from '@/db/schema';
 import { cleanFolderName } from '@/lib/folderName';
+import { normaliseEmail } from '@/lib/email';
 
 const REPARENT_ADVISORY_LOCK_KEY = 4137_000_001; // arbitrary constant; documented in the design plan
 const MAX_NAME = 64;
@@ -21,6 +22,12 @@ export class FolderCycle extends Error {
 }
 export class FolderParentNotFound extends Error {
   constructor() { super('parent folder not found'); this.name = 'FolderParentNotFound'; }
+}
+export class DropNotVisible extends Error {
+  constructor() { super('drop not visible to actor'); this.name = 'DropNotVisible'; }
+}
+export class DropNotFound extends Error {
+  constructor() { super('drop not found'); this.name = 'DropNotFound'; }
 }
 
 export interface Folder {
@@ -165,6 +172,40 @@ export async function deleteFolderReparenting(id: string): Promise<void> {
     await tx.update(drops).set({ folderId: newParentId }).where(eq(drops.folderId, id));
 
     await tx.delete(folders).where(eq(folders.id, id));
+  });
+}
+
+async function canUserSeeDrop(tx: Tx, user: { id: string; email: string }, dropId: string): Promise<boolean> {
+  const rows = await tx.select({ ownerId: drops.ownerId, viewMode: drops.viewMode })
+    .from(drops).where(eq(drops.id, dropId));
+  if (rows.length === 0) return false;
+  const row = rows[0]!;
+  if (row.ownerId === user.id) return true;
+  if (row.viewMode === 'public' || row.viewMode === 'authed') return true;
+  if (row.viewMode === 'emails') {
+    const normEmail = normaliseEmail(user.email);
+    const v = await tx.select().from(dropViewers)
+      .where(and(eq(dropViewers.dropId, dropId), eq(dropViewers.email, normEmail)));
+    return v.length > 0;
+  }
+  return false;
+}
+
+export async function setDropFolder(
+  user: { id: string; email: string },
+  dropId: string,
+  folderId: string | null,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    const dropRows = await tx.select({ id: drops.id }).from(drops).where(eq(drops.id, dropId));
+    if (dropRows.length === 0) throw new DropNotFound();
+    const visible = await canUserSeeDrop(tx, user, dropId);
+    if (!visible) throw new DropNotVisible();
+    if (folderId != null) {
+      const f = await tx.select().from(folders).where(eq(folders.id, folderId));
+      if (f.length === 0) throw new FolderNotFound();
+    }
+    await tx.update(drops).set({ folderId }).where(eq(drops.id, dropId));
   });
 }
 

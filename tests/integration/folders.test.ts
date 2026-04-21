@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '@/db';
 import { folders, users, drops, dropViewers } from '@/db/schema';
 import { eq } from 'drizzle-orm';
-import { createFolder, renameFolder, moveFolder, deleteFolderReparenting } from '@/services/folders';
+import { createFolder, renameFolder, moveFolder, deleteFolderReparenting, setDropFolder } from '@/services/folders';
 import { InvalidFolderName } from '@/lib/folderName';
 
 async function resetAll() {
@@ -213,6 +213,64 @@ describe('deleteFolderReparenting', () => {
 
   it('throws FolderNotFound for a missing id', async () => {
     await expect(deleteFolderReparenting('00000000-0000-0000-0000-000000000000'))
+      .rejects.toThrow(/folder not found/i);
+  });
+});
+
+describe('setDropFolder', () => {
+  let ownerId: string;
+  let otherMemberId: string;
+  beforeEach(async () => {
+    await resetAll();
+    const owner = await insertUser({ email: 'o@x.test', username: 'owner' });
+    const other = await insertUser({ email: 'm@x.test', username: 'member' });
+    ownerId = owner.id;
+    otherMemberId = other.id;
+  });
+
+  it('files a drop into a folder', async () => {
+    const f = await createFolder(ownerId, 'box');
+    const d = await insertDrop({ ownerId, name: 'mine' });
+    await setDropFolder({ id: ownerId, email: 'o@x.test' }, d.id, f.id);
+    const [after] = await db.select().from(drops).where(eq(drops.id, d.id));
+    expect(after!.folderId).toBe(f.id);
+  });
+
+  it('unfiles when folderId is null', async () => {
+    const f = await createFolder(ownerId, 'box');
+    const d = await insertDrop({ ownerId, name: 'mine', folderId: f.id });
+    await setDropFolder({ id: ownerId, email: 'o@x.test' }, d.id, null);
+    const [after] = await db.select().from(drops).where(eq(drops.id, d.id));
+    expect(after!.folderId).toBeNull();
+  });
+
+  it('other members can file public/authed drops of another owner', async () => {
+    const f = await createFolder(otherMemberId, 'box');
+    const d = await insertDrop({ ownerId, name: 'open', viewMode: 'authed' });
+    await setDropFolder({ id: otherMemberId, email: 'm@x.test' }, d.id, f.id);
+    const [after] = await db.select().from(drops).where(eq(drops.id, d.id));
+    expect(after!.folderId).toBe(f.id);
+  });
+
+  it('rejects filing an emails-mode drop the actor is not listed on', async () => {
+    const f = await createFolder(otherMemberId, 'box');
+    const d = await insertDrop({ ownerId, name: 'locked', viewMode: 'emails' });
+    await expect(setDropFolder({ id: otherMemberId, email: 'm@x.test' }, d.id, f.id))
+      .rejects.toThrow(/not visible/i);
+  });
+
+  it('allows filing an emails-mode drop the actor IS listed on', async () => {
+    const f = await createFolder(otherMemberId, 'box');
+    const d = await insertDrop({ ownerId, name: 'shared', viewMode: 'emails' });
+    await db.insert(dropViewers).values({ dropId: d.id, email: 'm@x.test' });
+    await setDropFolder({ id: otherMemberId, email: 'm@x.test' }, d.id, f.id);
+    const [after] = await db.select().from(drops).where(eq(drops.id, d.id));
+    expect(after!.folderId).toBe(f.id);
+  });
+
+  it('rejects a folderId that does not exist', async () => {
+    const d = await insertDrop({ ownerId, name: 'x' });
+    await expect(setDropFolder({ id: ownerId, email: 'o@x.test' }, d.id, '00000000-0000-0000-0000-000000000000'))
       .rejects.toThrow(/folder not found/i);
   });
 });
