@@ -3,7 +3,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '@/db';
 import { folders, users, drops, dropViewers } from '@/db/schema';
-import { createFolder } from '@/services/folders';
+import { createFolder, renameFolder } from '@/services/folders';
 import { InvalidFolderName } from '@/lib/folderName';
 
 async function resetAll() {
@@ -66,6 +66,44 @@ describe('createFolder', () => {
   it('rejects a parentId that does not exist', async () => {
     await expect(createFolder(userId, 'x', '00000000-0000-0000-0000-000000000000'))
       .rejects.toThrow(/parent folder not found/i);
+  });
+});
+
+describe('renameFolder', () => {
+  let userId: string;
+  beforeEach(async () => {
+    await resetAll();
+    const u = await insertUser({ email: 'a@x.test', username: 'alice' });
+    userId = u.id;
+  });
+
+  it('renames a folder', async () => {
+    const f = await createFolder(userId, 'reports');
+    const renamed = await renameFolder(f.id, 'archive');
+    expect(renamed.name).toBe('archive');
+  });
+
+  it('rejects invalid names', async () => {
+    const f = await createFolder(userId, 'reports');
+    await expect(renameFolder(f.id, '')).rejects.toThrow();
+    await expect(renameFolder(f.id, 'a/b')).rejects.toThrow();
+  });
+
+  it('rejects sibling-name collision', async () => {
+    await createFolder(userId, 'a');
+    const b = await createFolder(userId, 'b');
+    await expect(renameFolder(b.id, 'a')).rejects.toThrow(/name taken/i);
+  });
+
+  it('allows renaming to the same name (no-op)', async () => {
+    const f = await createFolder(userId, 'reports');
+    const again = await renameFolder(f.id, 'reports');
+    expect(again.name).toBe('reports');
+  });
+
+  it('throws FolderNotFound for a missing id', async () => {
+    await expect(renameFolder('00000000-0000-0000-0000-000000000000', 'x'))
+      .rejects.toThrow(/folder not found/i);
   });
 });
 
