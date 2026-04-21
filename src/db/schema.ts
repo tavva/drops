@@ -1,5 +1,6 @@
 // ABOUTME: Drizzle schema for the drops app: users, sessions, pending logins, drops, drop versions.
 // ABOUTME: Composite FK drops.current_version -> drop_versions(id, drop_id) is added by a raw SQL step in the migration.
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { pgTable, text, uuid, bigint, integer, timestamp, uniqueIndex, index, primaryKey, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
@@ -43,7 +44,7 @@ export const drops = pgTable('drops', {
   name: text('name').notNull(),
   currentVersion: uuid('current_version'),
   viewMode: text('view_mode').notNull().default('authed'),
-  folderId: uuid('folder_id').references((): any => folders.id, { onDelete: 'set null' }),
+  folderId: uuid('folder_id').references((): AnyPgColumn => folders.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -75,7 +76,7 @@ export const dropViewers = pgTable('drop_viewers', {
 export const folders = pgTable('folders', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   name: text('name').notNull(),
-  parentId: uuid('parent_id').references((): any => folders.id, { onDelete: 'restrict' }),
+  parentId: uuid('parent_id').references((): AnyPgColumn => folders.id, { onDelete: 'restrict' }),
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
