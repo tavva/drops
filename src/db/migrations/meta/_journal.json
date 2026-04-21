@@ -15,6 +15,13 @@
       "when": 1776588683229,
       "tag": "0001_medical_the_fallen",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1776762430556,
+      "tag": "0002_wealthy_rumiko_fujikawa",
+      "breakpoints": true
     }
   ]
 }

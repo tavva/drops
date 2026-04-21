@@ -43,11 +43,13 @@ export const drops = pgTable('drops', {
   name: text('name').notNull(),
   currentVersion: uuid('current_version'),
   viewMode: text('view_mode').notNull().default('authed'),
+  folderId: uuid('folder_id').references((): any => folders.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   ownerNameUnique: uniqueIndex('drops_owner_name_unique').on(t.ownerId, t.name),
   viewModeCheck: check('drops_view_mode_check', sql`${t.viewMode} IN ('authed','public','emails')`),
+  folderIdx: index('drops_folder_id_idx').on(t.folderId),
 }));
 
 export const dropVersions = pgTable('drop_versions', {
@@ -68,4 +70,18 @@ export const dropViewers = pgTable('drop_viewers', {
 }, (t) => ({
   pk: primaryKey({ columns: [t.dropId, t.email] }),
   emailIdx: index('drop_viewers_email_idx').on(t.email),
+}));
+
+export const folders = pgTable('folders', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  name: text('name').notNull(),
+  parentId: uuid('parent_id').references((): any => folders.id, { onDelete: 'restrict' }),
+  createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  noSelfParent: check('folders_no_self_parent', sql`${t.id} <> ${t.parentId}`),
+  siblingUniqueNamed: uniqueIndex('folders_sibling_name_unique')
+    .on(t.parentId, t.name).where(sql`${t.parentId} IS NOT NULL`),
+  rootUniqueNamed: uniqueIndex('folders_root_name_unique')
+    .on(t.name).where(sql`${t.parentId} IS NULL`),
 }));
