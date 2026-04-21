@@ -101,18 +101,22 @@ describe('GET /auth/callback', () => {
     expect(res.body).toBe('email_unverified');
   });
 
-  it('rejects non-allowlisted email', async () => {
+  it('renders a helpful page showing the signed-in email when not allowed', async () => {
     exchangeCodeMock.mockResolvedValueOnce({
       email: 'nobody@some-other-domain.test',
       emailVerified: true,
       name: null, avatarUrl: null,
     });
+    const next = 'http://ben--site.content.localtest.me:3000/';
     const res = await appInstance.inject({
       method: 'GET', url: '/auth/callback?code=abc&state=s',
-      headers: { host: 'drops.localtest.me', cookie: await stateCookie('s', 'n') },
+      headers: { host: 'drops.localtest.me', cookie: await stateCookie('s', 'n', next) },
     });
     expect(res.statusCode).toBe(403);
-    expect(res.body).toBe('not_allowed');
+    expect(res.headers['content-type']).toMatch(/html/);
+    expect(res.body).toContain('nobody@some-other-domain.test');
+    // Retry CTA preserves the intended destination.
+    expect(res.body).toContain(`/auth/login?next=${encodeURIComponent(next)}`);
   });
 
   it('creates session for existing user and redirects to app next', async () => {
