@@ -256,3 +256,127 @@ describe('POST /app/folders/:id/rename', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('POST /app/folders/:id/move', () => {
+  it('moves to root on empty parentId and 303s', async () => {
+    await createViaPost('a');
+    const [a] = await db.select().from(folders).where(eq(folders.name, 'a'));
+    await createViaPost('b', a!.id);
+    const [b] = await db.select().from(folders).where(eq(folders.name, 'b'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${b!.id}/move`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `parentId=&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const [after] = await db.select().from(folders).where(eq(folders.id, b!.id));
+    expect(after!.parentId).toBeNull();
+  });
+
+  it('moves under a parent and 303s', async () => {
+    await createViaPost('a');
+    await createViaPost('b');
+    const [a] = await db.select().from(folders).where(eq(folders.name, 'a'));
+    const [b] = await db.select().from(folders).where(eq(folders.name, 'b'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${b!.id}/move`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `parentId=${a!.id}&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const [after] = await db.select().from(folders).where(eq(folders.id, b!.id));
+    expect(after!.parentId).toBe(a!.id);
+  });
+
+  it('400s with banner on cycle', async () => {
+    await createViaPost('a');
+    const [a] = await db.select().from(folders).where(eq(folders.name, 'a'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${a!.id}/move`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `parentId=${a!.id}&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/moved inside/i);
+  });
+
+  it('400s with banner on sibling-name collision', async () => {
+    await createViaPost('a');
+    const [a] = await db.select().from(folders).where(eq(folders.name, 'a'));
+    await createViaPost('dup', a!.id);
+    await createViaPost('dup');
+    const dupRows = await db.select().from(folders).where(eq(folders.name, 'dup'));
+    const dupRoot = dupRows.find((r) => r.parentId === null)!;
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${dupRoot.id}/move`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `parentId=${a!.id}&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/already contains a folder with that name/i);
+  });
+
+  it('404s on a malformed id', async () => {
+    const res = await appInstance.inject({
+      method: 'POST', url: '/app/folders/not-a-uuid/move',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `parentId=&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('404s on an unknown folder', async () => {
+    const res = await appInstance.inject({
+      method: 'POST', url: '/app/folders/00000000-0000-0000-0000-000000000000/move',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `parentId=&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('403s on missing CSRF token', async () => {
+    await createViaPost('a');
+    const [a] = await db.select().from(folders).where(eq(folders.name, 'a'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${a!.id}/move`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `drops_session=${signedSid}`,
+      },
+      payload: `parentId=`,
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});

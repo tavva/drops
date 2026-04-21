@@ -19,8 +19,9 @@ afterAll(async () => { await appInstance.close(); });
 let userId: string;
 beforeEach(async () => {
   const { db } = await import('@/db');
-  const { users, drops, sessions } = await import('@/db/schema');
+  const { users, drops, folders, sessions } = await import('@/db/schema');
   await db.delete(drops);
+  await db.delete(folders);
   await db.delete(sessions);
   await db.delete(users);
   const [u] = await db.insert(users).values({ email: 'a@b.com', username: 'alice' }).returning();
