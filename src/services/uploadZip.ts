@@ -114,7 +114,7 @@ export async function uploadZip(r2Prefix: string, stream: Readable): Promise<Upl
       if (entry.fileName.endsWith('/')) continue;
       if (isSymlink(entry)) throw new UploadError('zip_symlink');
       const res = sanitisePath(entry.fileName);
-      if (!res.ok) throw new UploadError('path_rejected', `path rejected: ${res.reason}`);
+      if (!res.ok) throw new UploadError('path_rejected', `path rejected (${res.reason}): ${entry.fileName}`);
       prepared.push({ entry, sanitisedPath: res.path });
     }
     const unwrapped = stripSingleRoot(prepared);

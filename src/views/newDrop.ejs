@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
     <link rel="stylesheet" href="/app/static/style.css">
-    <script src="/app/static/new-drop.js" defer></script>
+    <script type="module" src="/app/static/new-drop.js"></script>
   </head>
   <body class="app-viewport">
     <header class="app-header">
@@ -65,7 +65,7 @@
           <div class="limits">
             <span><span class="k">total</span> ≤ 100 MB</span>
             <span><span class="k">each</span> ≤ 25 MB</span>
-            <span><span class="k">ignored</span> .DS_Store · .git</span>
+            <span><span class="k">ignored</span> .DS_Store · Thumbs.db · __MACOSX</span>
           </div>
 
           <div id="ready-pill" class="ready-pill" hidden></div>
