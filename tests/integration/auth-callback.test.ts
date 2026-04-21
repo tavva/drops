@@ -42,13 +42,49 @@ async function stateCookie(state: string, nonce: string, next = 'http://drops.lo
 }
 
 describe('GET /auth/callback', () => {
-  it('rejects missing state cookie', async () => {
+  it('restarts login when state cookie is missing and state query is unsigned', async () => {
+    // Missing cookie + unsigned state = dead-end restart with no known next URL.
     const res = await appInstance.inject({
       method: 'GET', url: '/auth/callback?code=abc&state=s',
       headers: { host: 'drops.localtest.me' },
     });
-    expect(res.statusCode).toBe(400);
-    expect(res.body).toBe('missing_state');
+    expect(res.statusCode).toBe(302);
+    const loc = new URL(res.headers.location as string);
+    expect(loc.origin).toBe('http://drops.localtest.me:3000');
+    expect(loc.pathname).toBe('/auth/login');
+    expect(loc.searchParams.get('next')).toBeNull();
+  });
+
+  it('recovers next from the signed state query param when cookie is missing', async () => {
+    // Regression: a viewer who hit /auth/callback once (which clears the state cookie) but then
+    // re-opens a stale callback URL used to hit a dead-end `missing_state` 400. The signed
+    // `state` param echoed back by Google carries the original `next` so we can restart.
+    const { config } = await import('@/config');
+    const { signCookie } = await import('@/lib/cookies');
+    const next = 'http://drops.localtest.me:3000/auth/drop-bootstrap'
+      + '?host=own--site.content.localtest.me&next=%2F';
+    const stateToken = signCookie(JSON.stringify({ r: 'seed', next }), config.SESSION_SECRET);
+    const res = await appInstance.inject({
+      method: 'GET',
+      url: `/auth/callback?code=abc&state=${encodeURIComponent(stateToken)}`,
+      headers: { host: 'drops.localtest.me' },
+    });
+    expect(res.statusCode).toBe(302);
+    const loc = new URL(res.headers.location as string);
+    expect(loc.origin).toBe('http://drops.localtest.me:3000');
+    expect(loc.pathname).toBe('/auth/login');
+    expect(loc.searchParams.get('next')).toBe(next);
+  });
+
+  it('restarts login when state cookie signature is invalid', async () => {
+    // Cookie present but HMAC broken — same recovery path as missing cookie.
+    const res = await appInstance.inject({
+      method: 'GET', url: '/auth/callback?code=abc&state=s',
+      headers: { host: 'drops.localtest.me', cookie: 'oauth_state=tampered.value' },
+    });
+    expect(res.statusCode).toBe(302);
+    const loc = new URL(res.headers.location as string);
+    expect(loc.pathname).toBe('/auth/login');
   });
 
   it('rejects unverified email', async () => {

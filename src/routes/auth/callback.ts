@@ -47,15 +47,33 @@ async function completeLogin(
   return reply.redirect(nextUrl, 302);
 }
 
+function restartLogin(reply: FastifyReply, stateParam: string | undefined): FastifyReply {
+  // When the oauth_state cookie is gone (callback URL re-opened after a prior hit, or expiry),
+  // the signed `state` param Google echoes back still carries `next`. Recover it so viewers
+  // with drop-only access aren't stranded on the dashboard.
+  const login = new URL('/auth/login', config.APP_ORIGIN);
+  if (stateParam) {
+    const payload = verifyCookie(stateParam, config.SESSION_SECRET);
+    if (payload) {
+      try {
+        const { next } = JSON.parse(payload) as { next?: unknown };
+        if (typeof next === 'string') login.searchParams.set('next', next);
+      } catch { /* fall through to bare restart */ }
+    }
+  }
+  return reply.redirect(login.toString(), 302);
+}
+
 export const callbackRoute: FastifyPluginAsync = async (app) => {
   app.get('/auth/callback', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
+    const q = req.query as Record<string, string | undefined>;
     const raw = req.cookies[OAUTH_STATE_COOKIE];
-    if (!raw) return reply.code(400).send('missing_state');
+    if (!raw) return restartLogin(reply, q.state);
     const payload = verifyCookie(raw, config.SESSION_SECRET);
-    if (!payload) return reply.code(400).send('invalid_state');
+    if (!payload) return restartLogin(reply, q.state);
     let parsed: { state: string; nonce: string; next: string };
     try { parsed = JSON.parse(payload); }
-    catch { return reply.code(400).send('invalid_state'); }
+    catch { return restartLogin(reply, q.state); }
 
     reply.clearCookie(OAUTH_STATE_COOKIE, appCookieOptions({ path: '/auth' }));
 

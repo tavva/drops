@@ -62,7 +62,11 @@ export const loginRoute: FastifyPluginAsync = async (app) => {
       }
     }
 
-    const state = randomBytes(32).toString('base64url');
+    // State sent to Google is an HMAC-signed token carrying `next`. This lets /auth/callback
+    // recover the intended destination and restart the flow when the oauth_state cookie is
+    // missing (stale tab refreshed after the cookie was already consumed, >10min expiry, etc.).
+    const stateSeed = randomBytes(16).toString('base64url');
+    const state = signCookie(JSON.stringify({ r: stateSeed, next }), config.SESSION_SECRET);
     const nonce = randomBytes(32).toString('base64url');
     const payload = JSON.stringify({ state, nonce, next });
     const signed = signCookie(payload, config.SESSION_SECRET);
