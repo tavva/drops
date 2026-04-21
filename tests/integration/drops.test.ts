@@ -1,12 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '@/db';
 import { drops, dropVersions, users } from '@/db/schema';
+import { dropViewers } from '@/db/schema';
 import {
   createDropAndVersion,
   replaceVersion,
   findByOwnerAndName,
   listByOwner,
   listAllVisible,
+  listAllVisibleUnpaged,
   deleteDrop,
   DropConflictError,
 } from '@/services/drops';
@@ -96,5 +98,54 @@ describe('drops service', () => {
     await createDropAndVersion(ownerA, 'vm', { r2Prefix: 'drops/vm/', byteSize: 1, fileCount: 1 });
     const s = await findByOwnerAndName(ownerA, 'vm');
     expect(s!.viewMode).toBe('authed');
+  });
+});
+
+describe('listAllVisibleUnpaged', () => {
+  beforeEach(async () => {
+    await db.delete(dropViewers);
+    await db.delete(drops);
+    await db.delete(users);
+    const [a] = await db.insert(users).values({ email: 'a@x.com', username: 'alice' }).returning();
+    const [b] = await db.insert(users).values({ email: 'b@x.com', username: 'bob' }).returning();
+    ownerA = a!.id;
+    ownerB = b!.id;
+  });
+
+  it('returns every visible drop (own + public + authed + listed emails) and excludes unlisted emails drops', async () => {
+    // Seed > 25 to prove the helper is not secretly paged.
+    for (let i = 0; i < 30; i++) {
+      await db.insert(drops).values({
+        ownerId: ownerA,
+        name: `alice-own-${String(i).padStart(2, '0')}`,
+        viewMode: 'authed',
+      });
+    }
+    const [publicDrop] = await db.insert(drops).values({
+      ownerId: ownerB, name: 'bobs-public', viewMode: 'public',
+    }).returning();
+    const [authedDrop] = await db.insert(drops).values({
+      ownerId: ownerB, name: 'bobs-authed', viewMode: 'authed',
+    }).returning();
+    const [visibleEmail] = await db.insert(drops).values({
+      ownerId: ownerB, name: 'bobs-visible-email', viewMode: 'emails',
+    }).returning();
+    const [hiddenEmail] = await db.insert(drops).values({
+      ownerId: ownerB, name: 'bobs-hidden-email', viewMode: 'emails',
+    }).returning();
+    await db.insert(dropViewers).values({ dropId: visibleEmail!.id, email: 'a@x.com' });
+
+    const list = await listAllVisibleUnpaged({ id: ownerA, email: 'a@x.com' });
+    const ids = new Set(list.map((d) => d.id));
+    expect(list.length).toBe(30 + 3); // 30 alice-own + public + authed + visible email
+    expect(ids.has(publicDrop!.id)).toBe(true);
+    expect(ids.has(authedDrop!.id)).toBe(true);
+    expect(ids.has(visibleEmail!.id)).toBe(true);
+    expect(ids.has(hiddenEmail!.id)).toBe(false);
+
+    // Ordered alphabetically by name.
+    const names = list.map((d) => d.name);
+    const sorted = [...names].sort();
+    expect(names).toEqual(sorted);
   });
 });
