@@ -380,3 +380,93 @@ describe('POST /app/folders/:id/move', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('POST /app/folders/:id/delete', () => {
+  it('deletes an empty folder and 303s', async () => {
+    await createViaPost('x');
+    const [x] = await db.select().from(folders).where(eq(folders.name, 'x'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${x!.id}/delete`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const after = await db.select().from(folders).where(eq(folders.id, x!.id));
+    expect(after).toHaveLength(0);
+  });
+
+  it('reparents drops (including ones the actor cannot see) up one level', async () => {
+    // Seed a second user who owns an emails-mode drop inside a shared folder.
+    const [owner] = await db.insert(users).values({ email: 'owner@x.test', username: 'owner' }).returning();
+    await createViaPost('outer');
+    const [outer] = await db.select().from(folders).where(eq(folders.name, 'outer'));
+    await createViaPost('inner', outer!.id);
+    const [inner] = await db.select().from(folders).where(eq(folders.name, 'inner'));
+    const [d] = await db.insert(drops).values({
+      ownerId: owner!.id, name: 'secret', viewMode: 'emails', folderId: inner!.id,
+    }).returning();
+
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${inner!.id}/delete`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const [after] = await db.select().from(drops).where(eq(drops.id, d!.id));
+    expect(after!.folderId).toBe(outer!.id);
+  });
+
+  it('404s on a malformed id', async () => {
+    const res = await appInstance.inject({
+      method: 'POST', url: '/app/folders/not-a-uuid/delete',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('404s on an unknown folder', async () => {
+    const res = await appInstance.inject({
+      method: 'POST', url: '/app/folders/00000000-0000-0000-0000-000000000000/delete',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('403s on missing CSRF token', async () => {
+    await createViaPost('x');
+    const [x] = await db.select().from(folders).where(eq(folders.name, 'x'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/folders/${x!.id}/delete`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `drops_session=${signedSid}`,
+      },
+      payload: ``,
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
