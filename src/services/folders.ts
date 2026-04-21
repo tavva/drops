@@ -90,6 +90,23 @@ export async function createFolder(userId: string, rawName: string, parentId?: s
   });
 }
 
+export async function renameFolder(id: string, rawName: string): Promise<Folder> {
+  const name = cleanFolderName(rawName);
+  return db.transaction(async (tx) => {
+    await acquireStructuralLock(tx);
+    const existing = await tx.select().from(folders).where(eq(folders.id, id));
+    if (existing.length === 0) throw new FolderNotFound();
+    if (existing[0]!.name === name) return toFolder(existing[0]!);
+    try {
+      const [row] = await tx.update(folders).set({ name }).where(eq(folders.id, id)).returning();
+      return toFolder(row!);
+    } catch (e: unknown) {
+      if (isUniqueViolation(e)) throw new FolderNameTaken();
+      throw e;
+    }
+  });
+}
+
 function isUniqueViolation(e: unknown): boolean {
   const visited = new Set<unknown>();
   let cur: unknown = e;
