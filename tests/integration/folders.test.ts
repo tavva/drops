@@ -3,7 +3,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { db } from '@/db';
 import { folders, users, drops, dropViewers } from '@/db/schema';
-import { createFolder, renameFolder, moveFolder } from '@/services/folders';
+import { eq } from 'drizzle-orm';
+import { createFolder, renameFolder, moveFolder, deleteFolderReparenting } from '@/services/folders';
 import { InvalidFolderName } from '@/lib/folderName';
 
 async function resetAll() {
@@ -16,6 +17,16 @@ async function resetAll() {
 async function insertUser(opts: { email: string; username: string }) {
   const [u] = await db.insert(users).values({ email: opts.email, username: opts.username }).returning();
   return u!;
+}
+
+async function insertDrop(opts: { ownerId: string; name: string; viewMode?: 'authed' | 'public' | 'emails'; folderId?: string | null }) {
+  const [d] = await db.insert(drops).values({
+    ownerId: opts.ownerId,
+    name: opts.name,
+    viewMode: opts.viewMode ?? 'authed',
+    folderId: opts.folderId ?? null,
+  }).returning();
+  return d!;
 }
 
 describe('createFolder', () => {
@@ -147,6 +158,62 @@ describe('moveFolder', () => {
     await createFolder(userId, 'dup', a.id);
     const dupAtRoot = await createFolder(userId, 'dup', b.id);
     await expect(moveFolder(dupAtRoot.id, a.id)).rejects.toThrow(/name taken/i);
+  });
+});
+
+describe('deleteFolderReparenting', () => {
+  let userId: string;
+  beforeEach(async () => {
+    await resetAll();
+    const u = await insertUser({ email: 'a@x.test', username: 'alice' });
+    userId = u.id;
+  });
+
+  it('deletes an empty folder', async () => {
+    const f = await createFolder(userId, 'x');
+    await deleteFolderReparenting(f.id);
+    const after = await db.select().from(folders).where(eq(folders.id, f.id));
+    expect(after).toHaveLength(0);
+  });
+
+  it('reparents child folders and drops up one level', async () => {
+    const parent = await createFolder(userId, 'parent');
+    const mid = await createFolder(userId, 'mid', parent.id);
+    const child = await createFolder(userId, 'child', mid.id);
+    const drop = await insertDrop({ ownerId: userId, name: 'd1', folderId: mid.id });
+    await deleteFolderReparenting(mid.id);
+
+    const [childAfter] = await db.select().from(folders).where(eq(folders.id, child.id));
+    expect(childAfter!.parentId).toBe(parent.id);
+    const [dropAfter] = await db.select().from(drops).where(eq(drops.id, drop.id));
+    expect(dropAfter!.folderId).toBe(parent.id);
+  });
+
+  it('reparents to root when the deleted folder had no parent', async () => {
+    const top = await createFolder(userId, 'top');
+    const child = await createFolder(userId, 'child', top.id);
+    await deleteFolderReparenting(top.id);
+    const [childAfter] = await db.select().from(folders).where(eq(folders.id, child.id));
+    expect(childAfter!.parentId).toBeNull();
+  });
+
+  it('renames a child folder on sibling-name collision during reparent', async () => {
+    const parent = await createFolder(userId, 'parent');
+    await createFolder(userId, 'dup', parent.id);
+    const mid = await createFolder(userId, 'mid', parent.id);
+    await createFolder(userId, 'dup', mid.id);
+
+    await deleteFolderReparenting(mid.id);
+
+    const under = await db.select().from(folders).where(eq(folders.parentId, parent.id));
+    const names = under.map((r) => r.name).sort();
+    expect(names).toContain('dup');
+    expect(names).toContain('dup (from mid)');
+  });
+
+  it('throws FolderNotFound for a missing id', async () => {
+    await expect(deleteFolderReparenting('00000000-0000-0000-0000-000000000000'))
+      .rejects.toThrow(/folder not found/i);
   });
 });
 

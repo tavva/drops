@@ -1,8 +1,8 @@
 // ABOUTME: Folder CRUD + tree operations. Structural mutations take a transaction-scoped advisory lock.
 // ABOUTME: resolveReparentName is exported for unit testing of the delete-time collision rule.
-import { eq, sql } from 'drizzle-orm';
+import { eq, isNull, sql } from 'drizzle-orm';
 import { db } from '@/db';
-import { folders } from '@/db/schema';
+import { drops, folders } from '@/db/schema';
 import { cleanFolderName } from '@/lib/folderName';
 
 const REPARENT_ADVISORY_LOCK_KEY = 4137_000_001; // arbitrary constant; documented in the design plan
@@ -139,6 +139,32 @@ export async function renameFolder(id: string, rawName: string): Promise<Folder>
       if (isUniqueViolation(e)) throw new FolderNameTaken();
       throw e;
     }
+  });
+}
+
+export async function deleteFolderReparenting(id: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    await acquireStructuralLock(tx);
+    const existing = await tx.select().from(folders).where(eq(folders.id, id));
+    if (existing.length === 0) throw new FolderNotFound();
+    const toDelete = existing[0]!;
+    const newParentId = toDelete.parentId;
+
+    const siblingRows = newParentId == null
+      ? await tx.select({ name: folders.name }).from(folders).where(isNull(folders.parentId))
+      : await tx.select({ name: folders.name }).from(folders).where(eq(folders.parentId, newParentId));
+    const taken = new Set(siblingRows.map((r) => r.name).filter((n) => n !== toDelete.name));
+
+    const children = await tx.select().from(folders).where(eq(folders.parentId, id));
+    for (const c of children) {
+      const finalName = resolveReparentName(c.name, toDelete.name, taken);
+      taken.add(finalName);
+      await tx.update(folders).set({ parentId: newParentId, name: finalName }).where(eq(folders.id, c.id));
+    }
+
+    await tx.update(drops).set({ folderId: newParentId }).where(eq(drops.folderId, id));
+
+    await tx.delete(folders).where(eq(folders.id, id));
   });
 }
 
