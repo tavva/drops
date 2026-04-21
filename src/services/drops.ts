@@ -121,6 +121,35 @@ export async function listByOwner(ownerId: string): Promise<DropSummary[]> {
 
 export interface DropListItem extends DropSummary {
   ownerUsername: string | null;
+  folderId: string | null;
+}
+
+type VisibleRow = {
+  d_id: string; owner_id: string; name: string; view_mode: string;
+  current_version: string | null; created_at: Date; updated_at: Date;
+  folder_id: string | null;
+  v_id: string | null; r2_prefix: string | null; byte_size: number | null;
+  file_count: number | null; v_created_at: Date | null;
+  username: string | null;
+  [key: string]: unknown;
+};
+
+function toListItem(row: VisibleRow): DropListItem {
+  return {
+    id: row.d_id,
+    name: row.name,
+    ownerId: row.owner_id,
+    viewMode: row.view_mode as ViewMode,
+    currentVersion: row.current_version,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    version: row.v_id ? {
+      id: row.v_id, r2Prefix: row.r2_prefix!, byteSize: Number(row.byte_size!),
+      fileCount: row.file_count!, createdAt: row.v_created_at!,
+    } : null,
+    ownerUsername: row.username,
+    folderId: row.folder_id,
+  };
 }
 
 export async function listAllVisible(
@@ -129,15 +158,9 @@ export async function listAllVisible(
   offset: number,
 ): Promise<DropListItem[]> {
   const normEmail = normaliseEmail(user.email);
-  const rows = await db.execute<{
-    d_id: string; owner_id: string; name: string; view_mode: string;
-    current_version: string | null; created_at: Date; updated_at: Date;
-    v_id: string | null; r2_prefix: string | null; byte_size: number | null;
-    file_count: number | null; v_created_at: Date | null;
-    username: string | null;
-  }>(sql`
+  const rows = await db.execute<VisibleRow>(sql`
     SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode,
-           d.current_version, d.created_at, d.updated_at,
+           d.current_version, d.created_at, d.updated_at, d.folder_id,
            v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.created_at AS v_created_at,
            u.username
     FROM drops d
@@ -151,20 +174,29 @@ export async function listAllVisible(
     ORDER BY d.updated_at DESC
     LIMIT ${limit} OFFSET ${offset}
   `);
-  return rows.map((row) => ({
-    id: row.d_id,
-    name: row.name,
-    ownerId: row.owner_id,
-    viewMode: row.view_mode as ViewMode,
-    currentVersion: row.current_version,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    version: row.v_id ? {
-      id: row.v_id, r2Prefix: row.r2_prefix!, byteSize: Number(row.byte_size!),
-      fileCount: row.file_count!, createdAt: row.v_created_at!,
-    } : null,
-    ownerUsername: row.username,
-  }));
+  return rows.map(toListItem);
+}
+
+export async function listAllVisibleUnpaged(
+  user: { id: string; email: string },
+): Promise<DropListItem[]> {
+  const normEmail = normaliseEmail(user.email);
+  const rows = await db.execute<VisibleRow>(sql`
+    SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode,
+           d.current_version, d.created_at, d.updated_at, d.folder_id,
+           v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.created_at AS v_created_at,
+           u.username
+    FROM drops d
+    INNER JOIN users u ON u.id = d.owner_id
+    LEFT JOIN drop_versions v ON v.id = d.current_version
+    WHERE d.owner_id = ${user.id}
+       OR d.view_mode = 'public'
+       OR d.view_mode = 'authed'
+       OR (d.view_mode = 'emails' AND EXISTS (
+             SELECT 1 FROM drop_viewers dv WHERE dv.drop_id = d.id AND dv.email = ${normEmail}))
+    ORDER BY d.name ASC
+  `);
+  return rows.map(toListItem);
 }
 
 export async function deleteDrop(dropId: string, ownerId: string): Promise<boolean> {
