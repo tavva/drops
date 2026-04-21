@@ -1,10 +1,12 @@
 // ABOUTME: Folder CRUD + tree operations. Structural mutations take a transaction-scoped advisory lock.
 // ABOUTME: resolveReparentName is exported for unit testing of the delete-time collision rule.
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, eq, isNull, sql, asc } from 'drizzle-orm';
 import { db } from '@/db';
 import { drops, dropViewers, folders } from '@/db/schema';
 import { cleanFolderName } from '@/lib/folderName';
 import { normaliseEmail } from '@/lib/email';
+import type { DropListItem } from '@/services/drops';
+import { listAllVisibleUnpaged } from '@/services/drops';
 
 const REPARENT_ADVISORY_LOCK_KEY = 4137_000_001; // arbitrary constant; documented in the design plan
 const MAX_NAME = 64;
@@ -207,6 +209,64 @@ export async function setDropFolder(
     }
     await tx.update(drops).set({ folderId }).where(eq(drops.id, dropId));
   });
+}
+
+export interface FolderNode {
+  id: string;
+  name: string;
+  parentId: string | null;
+  childFolderIds: string[];
+  drops: DropListItem[];
+  visibleDropCount: number;
+}
+
+export interface FolderTree {
+  byId: Map<string, FolderNode>;
+  rootFolderIds: string[];
+  rootDrops: DropListItem[];
+}
+
+export async function listFolderTree(
+  user: { id: string; email: string },
+  opts: { mineOnly?: boolean } = {},
+): Promise<FolderTree> {
+  const allFolders = await db.select().from(folders).orderBy(asc(folders.name));
+  let visibleDrops = await listAllVisibleUnpaged(user);
+  if (opts.mineOnly) visibleDrops = visibleDrops.filter((d) => d.ownerId === user.id);
+
+  const dropsByFolder = new Map<string | null, DropListItem[]>();
+  for (const d of visibleDrops) {
+    const key = d.folderId;
+    const list = dropsByFolder.get(key) ?? [];
+    list.push(d);
+    dropsByFolder.set(key, list);
+  }
+
+  const childIdsByParent = new Map<string | null, string[]>();
+  for (const f of allFolders) {
+    const children = childIdsByParent.get(f.parentId) ?? [];
+    children.push(f.id);
+    childIdsByParent.set(f.parentId, children);
+  }
+
+  const byId = new Map<string, FolderNode>();
+  for (const f of allFolders) {
+    const folderDrops = dropsByFolder.get(f.id) ?? [];
+    byId.set(f.id, {
+      id: f.id,
+      name: f.name,
+      parentId: f.parentId,
+      childFolderIds: childIdsByParent.get(f.id) ?? [],
+      drops: folderDrops,
+      visibleDropCount: folderDrops.length,
+    });
+  }
+
+  return {
+    byId,
+    rootFolderIds: childIdsByParent.get(null) ?? [],
+    rootDrops: dropsByFolder.get(null) ?? [],
+  };
 }
 
 function isUniqueViolation(e: unknown): boolean {
