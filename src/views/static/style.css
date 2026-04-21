@@ -611,3 +611,133 @@ code, kbd, .mono { font-family: var(--font-mono); }
 }
 .viewer-list li .email { flex: 1; color: var(--ink-1); word-break: break-all; }
 .viewer-list li form { margin: 0; }
+
+/* ============================================================
+   Folder tree (dashboard)
+   ============================================================ */
+.tree { display: flex; flex-direction: column; gap: 2px; }
+
+.folder-node { display: flex; flex-direction: column; gap: 4px; }
+
+.folder-row,
+.drop-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+}
+.folder-row:hover,
+.drop-row:hover { background: var(--bg-3); }
+.folder-row:hover .folder-actions,
+.folder-row:hover .drop-actions,
+.drop-row:hover .drop-actions { opacity: 1; }
+
+.folder-name {
+  font-family: var(--font-display);
+  font-weight: 600; color: var(--ink-1);
+  letter-spacing: -0.01em;
+}
+.folder-badge {
+  background: var(--bg-4); color: var(--ink-3);
+  border-radius: 999px; padding: 1px 8px;
+  font-family: var(--font-mono); font-size: 11px;
+}
+
+.drop-name { flex: none; font-weight: 500; color: var(--ink-1); }
+.drop-name a { color: var(--ink-1); }
+.drop-name a:hover { color: var(--accent); }
+.drop-meta { color: var(--ink-3); font-family: var(--font-mono); font-size: 11.5px; margin-left: auto; }
+
+.folder-actions,
+.drop-actions {
+  display: inline-flex; align-items: center; gap: 4px;
+  opacity: 0.35; transition: opacity .12s;
+}
+.folder-actions { margin-left: auto; }
+
+.folder-contents {
+  padding-left: 18px;
+  border-left: 1px dashed var(--line);
+  margin-left: 14px;
+}
+.folder-contents > .empty {
+  color: var(--ink-4); font-style: italic; font-size: 13px;
+  padding: 4px 12px;
+}
+
+/* Inline <details>-based popovers keep icon buttons inline and place the form
+   below/right-aligned when opened. */
+details.rename-details,
+details.move-details,
+details.new-folder-details {
+  display: inline-block; position: relative;
+}
+details.rename-details summary,
+details.move-details summary,
+details.new-folder-details summary {
+  list-style: none; cursor: pointer;
+}
+details.rename-details summary::-webkit-details-marker,
+details.move-details summary::-webkit-details-marker,
+details.new-folder-details summary::-webkit-details-marker { display: none; }
+details[open] > summary.icon-btn,
+details[open] > summary.btn { background: var(--bg-4); color: var(--ink-1); }
+
+details.rename-details .inline-form,
+details.move-details .inline-form,
+details.new-folder-details .new-folder-form {
+  position: absolute; top: calc(100% + 4px); right: 0; z-index: 20;
+  background: var(--bg-2); border: 1px solid var(--line-strong);
+  padding: 10px; border-radius: var(--r-md);
+  display: flex; gap: 6px; align-items: center;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  white-space: nowrap;
+}
+details.rename-details .inline-form input[type="text"],
+details.new-folder-details .new-folder-form input[type="text"] {
+  min-width: 220px;
+  padding: 6px 10px; border-radius: var(--r-sm);
+  background: var(--bg-0); border: 1px solid var(--line);
+  color: var(--ink-1); font-family: var(--font-body); font-size: 13px;
+}
+details.move-details select,
+details.new-folder-details .new-folder-form select {
+  min-width: 180px;
+  padding: 6px 10px; border-radius: var(--r-sm);
+  background: var(--bg-0); border: 1px solid var(--line);
+  color: var(--ink-1); font-family: var(--font-body); font-size: 13px;
+}
+details.rename-details .inline-form button,
+details.move-details .inline-form button,
+details.new-folder-details .new-folder-form button {
+  padding: 6px 12px; border-radius: var(--r-sm);
+  background: var(--bg-4); border: 1px solid var(--line);
+  color: var(--ink-1); cursor: pointer; font-size: 13px;
+}
+details.rename-details .inline-form button:hover,
+details.move-details .inline-form button:hover,
+details.new-folder-details .new-folder-form button:hover { background: var(--bg-3); border-color: var(--line-strong); }
+
+.folder-actions form.inline-form { margin: 0; display: inline; }
+.folder-actions > form.inline-form > button.icon-btn { display: inline-grid; }
+
+.banner {
+  padding: 12px 16px; border-radius: var(--r-md);
+  margin-bottom: 18px; font-size: 13.5px;
+}
+.banner-error {
+  background: color-mix(in oklch, var(--danger) 12%, var(--bg-2));
+  border: 1px solid color-mix(in oklch, var(--danger) 40%, var(--line));
+  color: var(--ink-1);
+}
+.banner-info {
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.mine-toggle {
+  display: inline-flex; align-items: center;
+  margin: 0; color: var(--ink-3); font-size: 13px;
+}
+.mine-toggle label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.mine-toggle input[type="checkbox"] { accent-color: var(--accent); }
