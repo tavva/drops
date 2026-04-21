@@ -50,6 +50,15 @@ describe('uploadFolderParts', () => {
     expect(await listPrefix(p)).toEqual([]);
   });
 
+  it('names the offending path in path_rejected errors', async () => {
+    await expect(uploadFolderParts(p, fromBuffers([
+      { filename: 'a/.git/config', bytes: Buffer.from('x') },
+    ]))).rejects.toMatchObject({
+      code: 'path_rejected',
+      message: expect.stringContaining('a/.git/config'),
+    });
+  });
+
   it('enforces per-file size', async () => {
     const big = Buffer.alloc(UPLOAD_LIMITS.perFileBytes + 1, 0);
     await expect(uploadFolderParts(p, fromBuffers([

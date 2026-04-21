@@ -1,5 +1,7 @@
 // ABOUTME: Client-side drag-drop + multipart POST for /app/drops/new and edit pages.
 // ABOUTME: Walks the dropped entry tree via webkitGetAsEntry for folders; zips are sent as a single file.
+import { shouldIgnore } from '/app/static/upload-ignore.js';
+
 (() => {
   const form = document.getElementById('new-drop-form');
   if (!form) return;
@@ -16,6 +18,11 @@
   const fixedName = form.dataset.fixedName || null;
   const csrf = form.dataset.csrf;
   let pending = null;
+
+  function readyLabel(kept, ignored) {
+    const base = `Ready: ${kept} file${kept === 1 ? '' : 's'}`;
+    return ignored > 0 ? `${base} (${ignored} ignored)` : base;
+  }
 
   function setErr(msg) {
     if (!errorEl) return;
@@ -67,6 +74,8 @@
       const file = await new Promise((res, rej) => entries[0].file(res, rej));
       if (file.name.endsWith('.zip')) {
         pending = { kind: 'zip', file };
+      } else if (shouldIgnore(file.name)) {
+        return setErr('No files found.');
       } else {
         pending = { kind: 'folder', files: [{ relativePath: file.name, file }] };
       }
@@ -87,8 +96,11 @@
       collected = (await Promise.all(entries.map((e) => walk(e, '')))).flat();
     }
     if (collected.length === 0) return setErr('No files found.');
-    pending = { kind: 'folder', files: collected };
-    markReady(`Ready: ${collected.length} files`);
+    const total = collected.length;
+    const kept = collected.filter((f) => !shouldIgnore(f.relativePath));
+    if (kept.length === 0) return setErr('No files found.');
+    pending = { kind: 'folder', files: kept };
+    markReady(readyLabel(kept.length, total - kept.length));
   });
 
   function handlePickedFiles(input) {
@@ -96,19 +108,20 @@
     if (files.length === 0) return;
     if (files.length === 1 && files[0].name.endsWith('.zip')) {
       pending = { kind: 'zip', file: files[0] };
-    } else {
-      const entries = files.map((f) => ({ raw: f.webkitRelativePath || f.name, file: f }));
-      const firstSeg = entries[0]?.raw.split('/')[0] ?? '';
-      const shareRoot = firstSeg && entries.every((e) => e.raw.split('/')[0] === firstSeg && e.raw.includes('/'));
-      pending = {
-        kind: 'folder',
-        files: entries.map((e) => ({
-          relativePath: shareRoot ? e.raw.split('/').slice(1).join('/') : e.raw,
-          file: e.file,
-        })),
-      };
+      markReady(readyLabel(1, 0));
+      return;
     }
-    markReady(`Ready: ${files.length} file${files.length === 1 ? '' : 's'}`);
+    const entries = files.map((f) => ({ raw: f.webkitRelativePath || f.name, file: f }));
+    const firstSeg = entries[0]?.raw.split('/')[0] ?? '';
+    const shareRoot = firstSeg && entries.every((e) => e.raw.split('/')[0] === firstSeg && e.raw.includes('/'));
+    const folderFiles = entries.map((e) => ({
+      relativePath: shareRoot ? e.raw.split('/').slice(1).join('/') : e.raw,
+      file: e.file,
+    }));
+    const kept = folderFiles.filter((f) => !shouldIgnore(f.relativePath));
+    if (kept.length === 0) return setErr('No files found.');
+    pending = { kind: 'folder', files: kept };
+    markReady(readyLabel(kept.length, folderFiles.length - kept.length));
   }
 
   filesInput?.addEventListener('change', () => handlePickedFiles(filesInput));

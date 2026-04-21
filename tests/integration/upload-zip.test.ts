@@ -87,6 +87,17 @@ describe('uploadZip', () => {
     expect(await listPrefix(p)).toEqual([]);
   });
 
+  it('names the offending path in path_rejected errors from zip', async () => {
+    const zip = await makeZip([
+      { name: 'site/.DS_Store', data: Buffer.from('x') },
+    ]);
+    await expect(uploadZip(p, Readable.from([zip]))).rejects.toMatchObject({
+      code: 'path_rejected',
+      message: expect.stringContaining('site/.DS_Store'),
+    });
+    expect(await listPrefix(p)).toEqual([]);
+  });
+
   it('rejects a corrupt archive', async () => {
     await expect(uploadZip(p, Readable.from([Buffer.from('not a zip')])))
       .rejects.toMatchObject({ code: 'invalid_zip' });

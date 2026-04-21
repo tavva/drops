@@ -49,7 +49,7 @@ export async function uploadFolderParts(
         throw new UploadError('file_count');
       }
       const res = sanitisePath(part.filename);
-      if (!res.ok) throw new UploadError('path_rejected', `path rejected: ${res.reason}`);
+      if (!res.ok) throw new UploadError('path_rejected', `path rejected (${res.reason}): ${part.filename}`);
       const key = res.path;
       if (seen.has(key)) throw new UploadError('path_collision', `duplicate path: ${key}`);
       seen.add(key);
