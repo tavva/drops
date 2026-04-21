@@ -470,3 +470,156 @@ describe('POST /app/folders/:id/delete', () => {
     expect(res.statusCode).toBe(403);
   });
 });
+
+describe('POST /app/drops/:id/folder', () => {
+  it('files an own drop into a folder and 303s', async () => {
+    const [d] = await db.insert(drops).values({ ownerId: userId, name: 'mine' }).returning();
+    await createViaPost('box');
+    const [box] = await db.select().from(folders).where(eq(folders.name, 'box'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/drops/${d!.id}/folder`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `folderId=${box!.id}&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const [after] = await db.select().from(drops).where(eq(drops.id, d!.id));
+    expect(after!.folderId).toBe(box!.id);
+  });
+
+  it('unfiles on empty folderId', async () => {
+    await createViaPost('box');
+    const [box] = await db.select().from(folders).where(eq(folders.name, 'box'));
+    const [d] = await db.insert(drops).values({ ownerId: userId, name: 'mine', folderId: box!.id }).returning();
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/drops/${d!.id}/folder`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `folderId=&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const [after] = await db.select().from(drops).where(eq(drops.id, d!.id));
+    expect(after!.folderId).toBeNull();
+  });
+
+  it('files a public drop of another owner (visibility allowed)', async () => {
+    const [owner] = await db.insert(users).values({ email: 'o@x.test', username: 'owner' }).returning();
+    const [d] = await db.insert(drops).values({ ownerId: owner!.id, name: 'open', viewMode: 'public' }).returning();
+    await createViaPost('box');
+    const [box] = await db.select().from(folders).where(eq(folders.name, 'box'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/drops/${d!.id}/folder`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `folderId=${box!.id}&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(303);
+    const [after] = await db.select().from(drops).where(eq(drops.id, d!.id));
+    expect(after!.folderId).toBe(box!.id);
+  });
+
+  it('404s on filing an emails-mode drop the actor cannot see', async () => {
+    const [owner] = await db.insert(users).values({ email: 'o@x.test', username: 'owner' }).returning();
+    const [d] = await db.insert(drops).values({ ownerId: owner!.id, name: 'secret', viewMode: 'emails' }).returning();
+    await createViaPost('box');
+    const [box] = await db.select().from(folders).where(eq(folders.name, 'box'));
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/drops/${d!.id}/folder`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `folderId=${box!.id}&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('404s on malformed drop id', async () => {
+    const res = await appInstance.inject({
+      method: 'POST', url: '/app/drops/not-a-uuid/folder',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `folderId=&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('404s on unknown drop id', async () => {
+    const res = await appInstance.inject({
+      method: 'POST', url: '/app/drops/00000000-0000-0000-0000-000000000000/folder',
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `folderId=&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it('400s with stale-folder banner on unknown folder id', async () => {
+    const [d] = await db.insert(drops).values({ ownerId: userId, name: 'mine' }).returning();
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/drops/${d!.id}/folder`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `folderId=00000000-0000-0000-0000-000000000000&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/no longer exists/i);
+  });
+
+  it('400s with stale-folder banner on malformed folder id', async () => {
+    const [d] = await db.insert(drops).values({ ownerId: userId, name: 'mine' }).returning();
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/drops/${d!.id}/folder`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: await cookieHeader(),
+      },
+      payload: `folderId=not-a-uuid&_csrf=${csrfToken}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toMatch(/no longer exists/i);
+  });
+
+  it('403s on missing CSRF token', async () => {
+    const [d] = await db.insert(drops).values({ ownerId: userId, name: 'mine' }).returning();
+    const res = await appInstance.inject({
+      method: 'POST', url: `/app/drops/${d!.id}/folder`,
+      headers: {
+        host: 'drops.localtest.me',
+        origin: config.APP_ORIGIN,
+        'content-type': 'application/x-www-form-urlencoded',
+        cookie: `drops_session=${signedSid}`,
+      },
+      payload: `folderId=`,
+    });
+    expect(res.statusCode).toBe(403);
+  });
+});
