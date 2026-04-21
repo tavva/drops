@@ -1,26 +1,10 @@
-// ABOUTME: GET /app dashboard page — shows the current user's drops and the global feed.
+// ABOUTME: GET /app dashboard page — shows the folder tree with per-viewer visibility.
 import type { FastifyPluginAsync } from 'fastify';
 import { requireCompletedMember } from '@/middleware/auth';
-import { listByOwner, listAllVisible } from '@/services/drops';
-import { config } from '@/config';
-import { formatBytes } from '@/lib/format';
-import { dropOriginFor } from '@/lib/dropHost';
+import { renderDashboard } from '@/routes/app/dashboardView';
 
 export const dashboardRoute: FastifyPluginAsync = async (app) => {
   app.get('/app', { preHandler: requireCompletedMember }, async (req, reply) => {
-    const user = req.user!;
-    const [yourDrops, allDrops] = await Promise.all([
-      listByOwner(user.id),
-      listAllVisible({ id: user.id, email: user.email }, 25, 0),
-    ]);
-    return reply.view('dashboard.ejs', {
-      user,
-      yourDrops,
-      allDrops,
-      contentOrigin: config.CONTENT_ORIGIN,
-      csrfToken: req.csrfToken ?? '',
-      formatBytes,
-      dropOriginFor,
-    });
+    return renderDashboard(req, reply);
   });
 };
