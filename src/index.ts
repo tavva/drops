@@ -11,6 +11,7 @@ import { chooseUsernameRoute } from './routes/auth/chooseUsername';
 import { logoutRoute } from './routes/auth/logout';
 import { bootstrapRoute } from './routes/auth/bootstrap';
 import { dropBootstrapRoute } from './routes/auth/dropBootstrap';
+import { magicRoutes } from './routes/auth/magic';
 import { dashboardRoute } from './routes/app/dashboard';
 import { newDropRoute } from './routes/app/newDrop';
 import { uploadRoute } from './routes/app/upload';
@@ -36,6 +37,7 @@ await app.register(onAppHost(async (s) => {
   await s.register(callbackRoute);
   await s.register(chooseUsernameRoute);
   await s.register(dropBootstrapRoute);
+  await s.register(magicRoutes);
   await s.register(logoutRoute);
   await s.register(dashboardRoute);
   await s.register(newDropRoute);
