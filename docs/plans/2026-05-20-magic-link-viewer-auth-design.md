@@ -28,8 +28,17 @@ The Google callback already contains the exact tail we need. For a viewer,
 reads the drop target from `next`, mints a 60-second handoff token, and bounces to
 the drop-host `/auth/bootstrap`. Magic-link completion is the viewer branch of that
 callback with Google swapped for a clicked token. It reuses
-`findByEmail` / `createViewerUser` and calls `completeLogin(reply, userId, 'viewer',
-next)` untouched.
+`findByEmail` / `createViewerUser`.
+
+`completeLogin` is currently a private function inside `callback.ts`. We extract its
+viewer path to a shared, exported `completeViewerLogin(reply, userId, next)` in a new
+`src/routes/auth/complete.ts`, and have the Google callback's viewer branch call the
+same helper. The helper creates a session and runs the handoff-and-bounce tail; it
+never sets an app cookie and never touches the user row, so passing a member's user
+id yields drop-content access only. It preserves the current viewer fallback: when
+`dropTargetFromNext(next)` is null it redirects to `/auth/goodbye`, exactly as the
+callback does today, so extracting it does not change the Google path. This keeps one
+code path for both entry points rather than duplicating the tail.
 
 ## Scope
 
@@ -37,6 +46,12 @@ The magic link authenticates an *email*, not a drop. `canView` continues to gate
 each drop per request, exactly as it does for a Google viewer session. One link
 means "you are bob@work.com"; bob then sees whatever bob is allowed to see. This
 avoids a parallel per-drop-permission concept (YAGNI).
+
+The link never changes a user's stored `kind`. If the email belongs to an existing
+member, the magic-link session still grants only drop-content access — no app
+cookie, no dashboard — because the completion always runs the viewer tail. So a
+member who clicks a magic link views the drop; they do not gain dashboard access
+through it.
 
 Out of scope: numeric codes (link only — the recipient followed a browser link, so
 a clickable link is the simplest path; a code helps only cross-device and can be
@@ -50,18 +65,27 @@ admin UI beyond the existing viewer-add flow.
 2. Instead of redirecting to Google, the route renders an interstitial offering two
    choices: *Sign in with Google* (the current redirect, unchanged) or *Email me a
    sign-in link*. Both carry `host` and `next` forward.
-3. The person submits their email to `POST /auth/magic/request` (CSRF-checked,
-   `tightAuthLimit`). The route normalises the email, resolves the drop from `host`,
-   and checks eligibility (`isMemberEmail` OR `isViewerAllowed(dropId, email)`). It
-   **always** re-renders the interstitial with an identical "check your email"
-   notice — same status, same body — whether or not the email was eligible. If
-   eligible, it stores a single-use token and sends the link.
-4. The emailed link is `GET /auth/magic/verify?token=…`. The route consumes the
-   token atomically, find-or-creates a `kind = 'viewer'` user for the email, then
-   calls `completeLogin(reply, userId, 'viewer', next)`.
-5. `completeLogin` mints the handoff and bounces to the drop-host `/auth/bootstrap`,
-   which sets the drop-session cookie and serves the content — identical to the
-   Google viewer tail.
+3. The person submits their email to `POST /auth/magic/request` (origin-checked
+   plus anonymous CSRF token, `tightAuthLimit` — see *CSRF* below). The route
+   normalises the email, rejects it unless `isLikelyEmail` (`src/lib/email.ts`)
+   passes, resolves the drop from `host`, and checks eligibility with
+   `canViewByEmail(email, drop)` (see *Eligibility*). It **always** re-renders the
+   interstitial with an identical "check your email" notice — same status, same
+   body — whether the email was malformed, ineligible, or eligible. If eligible, and
+   only when no unconsumed, unexpired token already exists for that
+   `(email, drop_id)` pair, it stores a single-use token and sends the link (see
+   *Abuse throttling*).
+4. The emailed link is `GET /auth/magic/verify?token=…`. The GET **does not consume**
+   the token; it renders a confirmation page (`magicConfirm.ejs`) with a button that
+   POSTs the token back. This survives email-client and scanner prefetch, which
+   issue GETs.
+5. `POST /auth/magic/verify` (origin-checked, token-as-capability, `tightAuthLimit`)
+   consumes the token atomically, find-or-creates the user for the email (creating a
+   `kind = 'viewer'` row only when absent; never altering an existing row), then
+   calls `completeViewerLogin(reply, userId, next)`.
+6. `completeViewerLogin` mints the handoff and bounces to the drop-host
+   `/auth/bootstrap`, which sets the drop-session cookie and serves the content —
+   identical to the Google viewer tail.
 
 ## Data model
 
@@ -71,6 +95,7 @@ A new table mirrors the `pending_logins` shape:
 magic_link_tokens(
   id          text primary key,   -- the secret: >=32 random bytes, base64url
   email       text not null,      -- normalised (lowercase + NFC), as drop_viewers
+  drop_id     uuid not null references drops(id) on delete cascade,
   next        text not null,      -- the drop target URL to resume
   consumed_at timestamptz,        -- null until clicked; single-use
   created_at  timestamptz not null default now(),
@@ -138,58 +163,119 @@ target, unchanged), and an *Email me a sign-in link* form. The dashboard login p
 (`/auth/login` from `requireAppSession`) is untouched, so members signing into the
 dashboard still go straight to Google.
 
-Two new app-host routes, registered in `src/index.ts`:
+Three new app-host routes, registered in `src/index.ts`:
 
-- **`POST /auth/magic/request`** — CSRF-checked, `tightAuthLimit`. Normalises the
-  email, resolves the drop from `host`, checks eligibility. If eligible, creates a
-  token and sends the link. **Always** re-renders `dropSignin.ejs` with an identical
-  notice; the mail send happens after the response decision, so a provider error
-  never changes what the user sees and is only logged. No enumeration.
-- **`GET /auth/magic/verify?token=…`** — `tightAuthLimit`, `skipCsrf` (a GET from an
-  email client). Consumes the token atomically; on success find-or-creates the
-  viewer and calls `completeLogin(reply, userId, 'viewer', next)`; on failure
-  renders `magicExpired.ejs` with a link back to re-request.
+- **`POST /auth/magic/request`** — origin-checked plus anonymous CSRF, `tightAuthLimit`.
+  Normalises the email, resolves the drop from `host`, checks `canViewByEmail`. If
+  eligible, creates a token and sends the link. **Always** re-renders `dropSignin.ejs`
+  with an identical notice; the mail send happens after the response decision, so a
+  provider error never changes what the user sees and is only logged. No enumeration.
+- **`GET /auth/magic/verify?token=…`** — `tightAuthLimit`, `skipCsrf`. Renders
+  `magicConfirm.ejs` with a POST button. It **does not consume** the token, so
+  email-client and scanner prefetch (which issue GETs) cannot burn it. A malformed or
+  obviously absent token still renders `magicExpired.ejs`.
+- **`POST /auth/magic/verify`** — origin-checked, `tightAuthLimit`, `skipCsrf`. The
+  high-entropy token in the body is itself the capability. Consumes the token
+  atomically; on success find-or-creates the user and calls `completeViewerLogin`; on
+  failure renders `magicExpired.ejs` with a link back to re-request.
 
-The interstitial needs a CSRF token minted before any session exists. The codebase
-already does this for pre-signup, binding CSRF to the pending-login id
-(`src/lib/csrf.ts`); we reuse that mechanism rather than invent a new one.
+### CSRF for the logged-out interstitial
+
+`contextId` in `src/middleware/csrf.ts` resolves only an app session or a pending
+login; a logged-out viewer has neither, so the existing CSRF would return
+`no_csrf_context`. We add an explicit anonymous context: when `GET /auth/drop-bootstrap`
+renders the interstitial with no session, it sets a signed, http-only `csrf_anon`
+cookie holding a random id, and `contextId` falls back to that id. The double-submit
+token then binds to it exactly like a session-bound token. The existing exact-origin
+check applies to every state-changing POST regardless. `POST /auth/magic/verify`
+relies on the origin check plus the unguessable token as its capability and so is
+marked `skipCsrf`, the same posture used for `/auth/callback` and `/auth/bootstrap`.
+
+### Eligibility
+
+Request-time eligibility must mirror the final `canView` gate (`src/services/permissions.ts`),
+or we would email links that later 403, or reject viewers of a `public` drop. We add
+`canViewByEmail(email, drop)` that reproduces `canView` without a `user.id`, resolving
+the owner by email:
+
+| `viewMode` | eligible when |
+| --- | --- |
+| owner (any mode) | the email resolves to `drop.ownerId` |
+| `public` | always |
+| `authed` | `isMemberEmail(email)` |
+| `emails` | `isViewerAllowed(drop.id, email)` |
+
+`canView` is refactored to delegate to `canViewByEmail` so the two cannot drift.
+
+### Abuse throttling
+
+`tightAuthLimit` is a small per-IP, per-route cap. It is not enough on its own once
+`public` drops accept link requests for any valid email, because an attacker could
+email-bomb a victim from many IPs. We add a per-recipient cooldown that lives in the
+token table itself: a request only sends when no unconsumed, unexpired token already
+exists for the `(email, drop_id)` pair; otherwise it silently reuses the outstanding
+token and shows the same neutral notice, sending nothing. The key is `drop_id`, not
+`next`, so an attacker cannot bypass the cooldown by varying the path or query on the
+same drop; the token still stores the original `next` for resume. This caps mail to
+one message per recipient per drop per TTL window while staying enumeration-safe —
+the response is identical whether or not a send occurred.
+
+The check-then-insert must be atomic so two concurrent requests cannot both decide to
+send. Do the select-then-insert inside a single transaction with the row locked
+(`SELECT … FOR UPDATE` on the drop, or a transaction-level advisory lock keyed by a
+hash of `(email, drop_id)`); expiry stays a runtime predicate in that query rather
+than an index predicate, since `now()` is not immutable and cannot live in a partial
+unique index.
 
 ## Error handling
 
 | Condition | Response |
 | --- | --- |
-| Email not eligible | Identical neutral "check your email" notice; no token, no send |
+| Email malformed (`isLikelyEmail` false) | Identical neutral notice; no token, no send |
+| Email not eligible (`canViewByEmail` false) | Identical neutral "check your email" notice; no token, no send |
+| Outstanding unexpired token for `(email, drop_id)` | Identical neutral notice; reuse it, no new send |
 | Resend returns non-2xx | Logged; user still sees the neutral notice |
-| Token expired / consumed / unknown | `magicExpired.ejs`, link to re-request |
+| GET prefetch of the verify link | Confirmation page only; token not consumed |
+| Token expired / consumed / unknown (on POST verify) | `magicExpired.ejs`, link to re-request |
 | `next` not a legitimate drop target | Rejected at request time; no token issued |
-| Rate limit exceeded on request | 429 from `tightAuthLimit` |
+| Rate limit exceeded on request or verify | 429 from `tightAuthLimit` |
 | Boot with `MAIL_PROVIDER=resend` and missing keys | `loadConfig` throws at startup |
 
 ## Testing
 
-**Unit.** Token service: issue → verify consumes once (second verify fails);
-expired and unknown tokens fail. Email normalisation matches `drop_viewers`
-(lowercase + NFC), so a link issued to `Bob@Work.com` authenticates against
-`bob@work.com`. `ConsoleMailer` captures the message. Config refinement throws when
-`MAIL_PROVIDER=resend` lacks `MAIL_FROM` or `RESEND_API_KEY`. `next` validation
-rejects a non-drop target at request time.
+**Unit.** Token service: issue → consume once (second consume fails); expired and
+unknown tokens fail. `canViewByEmail` mirrors `canView` across owner, `public`,
+`authed`, and `emails` drops, for member, listed-viewer, and unknown emails. Email
+normalisation matches `drop_viewers` (lowercase + NFC), so a link issued to
+`Bob@Work.com` authenticates against `bob@work.com`. `ConsoleMailer` captures the
+message. Config refinement throws when `MAIL_PROVIDER=resend` lacks `MAIL_FROM` or
+`RESEND_API_KEY`. `next` validation rejects a non-drop target at request time.
 
 **Integration** (real Postgres and MinIO, `ConsoleMailer`, single-worker series as
 the harness requires):
 - `POST /auth/magic/request` for an allowlisted viewer returns 200 with the neutral
   notice, writes exactly one token row, and sends exactly one message.
-- **Enumeration guard:** a request for a non-allowlisted email returns a
-  byte-identical response and status, writes zero token rows, and sends nothing.
-- `GET /auth/magic/verify` with the captured token creates a `kind = 'viewer'` user
-  and 302s to the drop-host `/auth/bootstrap` with a handoff token; the redirect
-  shape matches the Google viewer tail.
-- Replay: a second verify with the same token renders `magicExpired.ejs` and creates
-  no session.
+- **Enumeration guard:** requests for a non-allowlisted email and for a malformed
+  email each return a byte-identical response and status, write zero token rows, and
+  send nothing.
+- **Send throttling:** a second request for the same email and drop within the TTL —
+  including with a *different* valid `next` path on that drop — returns the neutral
+  notice, adds no token row, and sends nothing.
+- `GET /auth/magic/verify` with the captured token renders the confirmation page and
+  leaves the token unconsumed (token row's `consumed_at` stays null; a following POST
+  still succeeds) — the prefetch guard.
+- `POST /auth/magic/verify` with the captured token creates a `kind = 'viewer'` user
+  and 302s to the drop-host `/auth/bootstrap` with a handoff token; the redirect shape
+  matches the Google viewer tail.
+- A member's email used via magic link gets a content session without an app cookie,
+  and the existing member row's `kind` is unchanged.
+- Replay: a second POST verify with the same token renders `magicExpired.ejs` and
+  creates no session.
 - Rate limiting: `POST /auth/magic/request` returns 429 past the `tightAuthLimit`
   threshold.
 - Test output stays pristine: a deliberately triggered provider failure is captured
   and asserted, not left logging errors.
 
 **E2E** (Playwright): extend the happy path. Visit a drop logged out, choose *Email
-me a link*, read the link from the `ConsoleMailer` capture, follow it, and assert
-the drop content renders. Real flow, no mocked auth.
+me a link*, read the link from the `ConsoleMailer` capture, follow it, click the
+confirmation button, and assert the drop content renders. Real flow, no mocked auth.
