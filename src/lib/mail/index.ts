@@ -2,6 +2,7 @@
 // ABOUTME: 'console' for dev/test; 'resend' for production delivery.
 import type { Mailer } from './types';
 import { ConsoleMailer } from './console';
+import { ResendMailer } from './resend';
 import { config } from '@/config';
 
 let cached: Mailer | undefined;
@@ -15,5 +16,5 @@ export function getMailer(): Mailer {
 }
 
 function buildResend(): Mailer {
-  throw new Error('ResendMailer not yet implemented');
+  return new ResendMailer(config.RESEND_API_KEY!, config.MAIL_FROM!);
 }
