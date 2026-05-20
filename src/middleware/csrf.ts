@@ -2,7 +2,7 @@
 // ABOUTME: Tokens are minted when the cookie is missing or no longer valid for the current context;
 // ABOUTME: reusing the existing token keeps static asset GETs from invalidating in-flight form submissions.
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { CSRF_COOKIE, CSRF_HEADER, issueCsrfToken, verifyCsrfToken, requestOriginOk } from '@/lib/csrf';
+import { CSRF_COOKIE, CSRF_ANON_COOKIE, CSRF_HEADER, issueCsrfToken, verifyCsrfToken, requestOriginOk } from '@/lib/csrf';
 import { appCookieOptions, verifyCookie } from '@/lib/cookies';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
 import { config } from '@/config';
@@ -23,8 +23,14 @@ function sessionIdFromCookie(req: FastifyRequest): string | null {
   return verifyCookie(raw, config.SESSION_SECRET);
 }
 
+function anonContextId(req: FastifyRequest): string | null {
+  const raw = req.cookies[CSRF_ANON_COOKIE];
+  if (!raw) return null;
+  return verifyCookie(raw, config.SESSION_SECRET);
+}
+
 function contextId(req: FastifyRequest): string | null {
-  return req.session?.id ?? req.pendingLogin?.id ?? sessionIdFromCookie(req);
+  return req.session?.id ?? req.pendingLogin?.id ?? sessionIdFromCookie(req) ?? anonContextId(req);
 }
 
 export async function registerCsrf(app: FastifyInstance) {
