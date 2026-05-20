@@ -1,13 +1,14 @@
 // ABOUTME: App-host GET /auth/drop-bootstrap?host=…&next=… — mints a host-bound handoff so the
 // ABOUTME: browser can establish a session cookie on a specific drop subdomain, then redirects there.
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
-import { verifyCookie } from '@/lib/cookies';
+import { verifyCookie, signCookie, appCookieOptions } from '@/lib/cookies';
 import { signHandoff } from '@/lib/handoff';
 import { parseDropHost } from '@/lib/dropHost';
 import { getSessionUser } from '@/services/sessions';
 import { findByUsername } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
 import { canView } from '@/services/permissions';
+import { issueCsrfToken, CSRF_COOKIE, CSRF_ANON_COOKIE, newAnonCsrfId } from '@/lib/csrf';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
 import { tightAuthLimit } from '@/middleware/rateLimit';
 import { config } from '@/config';
@@ -48,9 +49,21 @@ export const dropBootstrapRoute: FastifyPluginAsync = async (app) => {
       const selfUrl = new URL('/auth/drop-bootstrap', config.APP_ORIGIN);
       selfUrl.searchParams.set('host', host);
       selfUrl.searchParams.set('next', nextPath);
-      const login = new URL('/auth/login', config.APP_ORIGIN);
-      login.searchParams.set('next', selfUrl.toString());
-      return reply.redirect(login.toString(), 302);
+      const googleHref = new URL('/auth/login', config.APP_ORIGIN);
+      googleHref.searchParams.set('next', selfUrl.toString());
+
+      const anonId = newAnonCsrfId();
+      reply.setCookie(CSRF_ANON_COOKIE, signCookie(anonId, config.SESSION_SECRET), appCookieOptions());
+      const csrfToken = issueCsrfToken(anonId);
+      reply.setCookie(CSRF_COOKIE, csrfToken, appCookieOptions({ httpOnly: false }));
+
+      return reply.view('dropSignin.ejs', {
+        host,
+        next: nextPath,
+        googleHref: googleHref.toString(),
+        csrfToken,
+        notice: null,
+      });
     }
 
     const owner = await findByUsername(parsed.username);
