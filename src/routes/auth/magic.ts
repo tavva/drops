@@ -2,16 +2,20 @@
 // ABOUTME: to an eligible address; GET/POST /auth/magic/verify (Task 11) complete the login.
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { parseDropHost, dropTargetFromNext } from '@/lib/dropHost';
-import { findByUsername } from '@/services/users';
+import { findByUsername, findByEmail, createViewerUser } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
 import { canViewByEmail } from '@/services/permissions';
-import { issueMagicToken } from '@/services/magicLinkTokens';
+import { issueMagicToken, consumeMagicToken } from '@/services/magicLinkTokens';
 import { isLikelyEmail, normaliseEmail } from '@/lib/email';
-import { issueCsrfToken, CSRF_COOKIE, CSRF_ANON_COOKIE, newAnonCsrfId } from '@/lib/csrf';
+import { issueCsrfToken, CSRF_COOKIE, CSRF_ANON_COOKIE, newAnonCsrfId, requestOriginOk } from '@/lib/csrf';
 import { signCookie, appCookieOptions } from '@/lib/cookies';
 import { getMailer } from '@/lib/mail';
+import { completeViewerLogin } from './complete';
 import { tightAuthLimit } from '@/middleware/rateLimit';
 import { config } from '@/config';
+
+// Tokens are randomBytes(32).toString('base64url') → exactly 43 base64url chars.
+const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 
 const NOTICE = 'If that address can view this drop, a sign-in link is on its way.';
 
@@ -79,5 +83,23 @@ export const magicRoutes: FastifyPluginAsync = async (app) => {
     };
     await issueAndSend();
     return renderInterstitial(reply, { host, next: next ?? '/', notice: NOTICE });
+  });
+
+  app.get('/auth/magic/verify', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
+    const token = (req.query as Record<string, string | undefined>).token ?? '';
+    if (!TOKEN_SHAPE.test(token)) return reply.code(400).view('magicExpired.ejs', {});
+    return reply.view('magicConfirm.ejs', { token });   // does NOT consume
+  });
+
+  app.post('/auth/magic/verify', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
+    const origin = req.headers.origin as string | undefined;
+    const referer = req.headers.referer as string | undefined;
+    if (!requestOriginOk(origin, referer)) return reply.code(403).send('bad_origin');
+    const token = ((req.body ?? {}) as Record<string, string | undefined>).token ?? '';
+    const claimed = await consumeMagicToken(token);
+    if (!claimed) return reply.code(400).view('magicExpired.ejs', {});
+    const existing = await findByEmail(claimed.email);
+    const user = existing ?? await createViewerUser({ email: claimed.email, name: null, avatarUrl: null });
+    return completeViewerLogin(reply, user.id, claimed.next);
   });
 };
