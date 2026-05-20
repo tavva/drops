@@ -48,17 +48,17 @@ async function injectWithCookie(url: string, cookieValue: string | null) {
 }
 
 describe('GET /auth/drop-bootstrap', () => {
-  it('bounces to /auth/login when no app session', async () => {
+  it('renders the sign-in interstitial when no app session', async () => {
     const res = await injectWithCookie(
       '/auth/drop-bootstrap?host=alice--foo.content.localtest.me&next=%2F',
       null,
     );
-    expect(res.statusCode).toBe(302);
-    const loc = new URL(res.headers.location as string);
-    expect(loc.pathname).toBe('/auth/login');
-    const next = loc.searchParams.get('next');
-    expect(next).toContain('/auth/drop-bootstrap');
-    expect(next).toContain('alice--foo.content.localtest.me');
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('/auth/login');                 // Google option present
+    expect(res.body).toContain('/auth/magic/request');         // email form present
+    const setCookie = [res.headers['set-cookie']].flat().filter(Boolean) as string[];
+    expect(setCookie.some((c) => c.startsWith('csrf_anon='))).toBe(true);
+    expect(setCookie.some((c) => c.startsWith('drops_csrf='))).toBe(true);
   });
 
   it('owner: mints a host-bound handoff and redirects to drop-host bootstrap', async () => {
