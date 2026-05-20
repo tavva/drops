@@ -70,9 +70,11 @@ admin UI beyond the existing viewer-add flow.
    normalises the email, rejects it unless `isLikelyEmail` (`src/lib/email.ts`)
    passes, resolves the drop from `host`, and checks eligibility with
    `canViewByEmail(email, drop)` (see *Eligibility*). It **always** re-renders the
-   interstitial with an identical "check your email" notice — same status, same
-   body — whether the email was malformed, ineligible, or eligible. If eligible, and
-   only when no unconsumed, unexpired token already exists for that
+   interstitial with the same status and the same "check your email" notice — whether
+   the email was malformed, ineligible, or eligible. The only thing that varies is the
+   per-render CSRF token, so responses are not byte-identical; the observable invariant
+   is that an ineligible or malformed request writes no token row and sends nothing. If
+   eligible, and only when no unconsumed, unexpired token already exists for that
    `(email, drop_id)` pair, it stores a single-use token and sends the link (see
    *Abuse throttling*).
 4. The emailed link is `GET /auth/magic/verify?token=…`. The GET **does not consume**
@@ -134,9 +136,10 @@ export interface Mailer {
   endpoint with `RESEND_API_KEY` using plain `fetch`, no SDK. It throws on non-2xx
   so the request route can log the failure while still returning the neutral
   success response.
-- **`ConsoleMailer`** (`src/lib/mail/console.ts`) logs the message via `pino` at
-  info. Used in dev and tests; it lets integration and e2e tests capture the link
-  without a real provider.
+- **`ConsoleMailer`** (`src/lib/mail/console.ts`) records each message in an
+  in-memory `sent[]` array and writes nothing to stdout, so integration and e2e
+  tests can capture the link without a real provider and without polluting test
+  output. The request route logs a send via `req.log` (silent under test).
 - **`getMailer()`** picks the backend from config and memoises it, following the
   lazy `config` proxy pattern.
 
@@ -221,7 +224,8 @@ token and shows the same neutral notice, sending nothing. The key is `drop_id`, 
 `next`, so an attacker cannot bypass the cooldown by varying the path or query on the
 same drop; the token still stores the original `next` for resume. This caps mail to
 one message per recipient per drop per TTL window while staying enumeration-safe —
-the response is identical whether or not a send occurred.
+the status and notice are the same whether or not a send occurred (only the per-render
+CSRF token differs), and no token row or send betrays the outcome.
 
 The check-then-insert must be atomic so two concurrent requests cannot both decide to
 send. Do the select-then-insert inside a single transaction with the row locked
