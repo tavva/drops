@@ -40,6 +40,8 @@ const pages: Array<{ path: string; title: string; description: string }> = [
   { path: '/new-drop', title: 'New drop', description: 'Name field + dropzone.' },
   { path: '/edit-drop', title: 'Edit drop', description: 'Version card + replace + delete modal.' },
   { path: '/edit-drop/empty', title: 'Edit drop — no version', description: 'Drop exists but nothing uploaded.' },
+  { path: '/drop-signin', title: 'Drop sign-in', description: 'Logged-out viewer: Google or magic link.' },
+  { path: '/drop-signin/sent', title: 'Drop sign-in — link sent', description: 'After requesting a magic link.' },
 ];
 
 app.get('/', async (_req, reply) => {
@@ -116,6 +118,22 @@ app.get('/edit-drop/empty', (_req, reply) =>
     csrfToken: 'preview',
     contentUrl: `${CONTENT_ORIGIN}/alice/draft/`,
     formatBytes,
+  }));
+
+const signinLocals = {
+  host: 'alice--sample-site.content.drops.example.com',
+  next: '/',
+  googleHref: `${APP_ORIGIN}/auth/login?next=%2F`,
+  csrfToken: 'preview',
+};
+
+app.get('/drop-signin', (_req, reply) =>
+  reply.view('dropSignin.ejs', { ...signinLocals, notice: null }));
+
+app.get('/drop-signin/sent', (_req, reply) =>
+  reply.view('dropSignin.ejs', {
+    ...signinLocals,
+    notice: 'If that address can view this drop, a sign-in link is on its way.',
   }));
 
 const port = Number(process.env.PORT ?? 4000);

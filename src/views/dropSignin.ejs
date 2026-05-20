@@ -9,12 +9,12 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 32'><path d='M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z' fill='%23ff5a3c'/><ellipse cx='8.5' cy='18' rx='2.2' ry='3' fill='%23ffd9cf' opacity='0.55'/></svg>">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&family=Roboto:wght@500&display=swap">
     <link rel="stylesheet" href="/app/static/style.css">
   </head>
   <body>
     <div class="auth-wrap">
-      <div class="auth-card uname-card">
+      <div class="auth-card signin-card">
         <div class="auth-logo">
           <svg viewBox="0 0 24 32" aria-hidden="true">
             <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
@@ -22,32 +22,45 @@
           </svg>
         </div>
         <h1>Sign in to view this drop</h1>
-        <p class="deck"><code><%= host %></code></p>
+        <p class="signin-host"><%= host %></p>
 
-        <% if (notice) { %><p class="notice" id="notice"><%= notice %></p><% } %>
+        <% if (notice) { %>
+          <div class="signin-notice" role="status">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4 12 14.01l-3-3"/></svg>
+            <span><%= notice %></span>
+          </div>
+        <% } %>
 
-        <div class="actions">
-          <a class="btn primary" href="<%= googleHref %>">Sign in with Google →</a>
-        </div>
+        <div class="signin-actions">
+          <a class="btn-google" href="<%= googleHref %>">
+            <svg class="g-logo" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path fill="#4285F4" d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"/>
+              <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18z"/>
+              <path fill="#FBBC05" d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.997 8.997 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332z"/>
+              <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z"/>
+            </svg>
+            <span>Sign in with Google</span>
+          </a>
 
-        <p class="deck">No Google account? We can email you a sign-in link.</p>
+          <div class="signin-or">or</div>
 
-        <form method="post" action="/auth/magic/request">
-          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
-          <input type="hidden" name="host" value="<%= host %>">
-          <input type="hidden" name="next" value="<%= next %>">
-          <div class="field">
-            <label for="email">Email</label>
-            <div class="input-wrap">
-              <input id="email" name="email" type="email" required
-                autocomplete="email" spellcheck="false"
-                autocapitalize="off" autocorrect="off">
+          <p class="signin-fallback">No Google account? We&rsquo;ll email you a one-time sign-in link.</p>
+          <form method="post" action="/auth/magic/request">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <input type="hidden" name="host" value="<%= host %>">
+            <input type="hidden" name="next" value="<%= next %>">
+            <div class="field">
+              <label for="email">Email</label>
+              <div class="input-wrap">
+                <input id="email" name="email" type="email" required
+                  placeholder="you@example.com"
+                  autocomplete="email" spellcheck="false"
+                  autocapitalize="off" autocorrect="off">
+              </div>
             </div>
-          </div>
-          <div class="actions">
-            <button class="btn" type="submit">Email me a sign-in link →</button>
-          </div>
-        </form>
+            <button class="btn primary block" type="submit">Email me a sign-in link →</button>
+          </form>
+        </div>
       </div>
     </div>
   </body>
