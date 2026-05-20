@@ -5,6 +5,7 @@ import { db } from '@/db';
 import { drops } from '@/db/schema';
 import { isMemberEmail } from '@/services/allowlist';
 import { isViewerAllowed } from '@/services/dropViewers';
+import { findByEmail } from '@/services/users';
 
 export type ViewMode = 'authed' | 'public' | 'emails';
 
@@ -19,14 +20,20 @@ export interface PermDrop {
   viewMode: ViewMode | string;
 }
 
-export async function canView(user: PermUser, drop: PermDrop): Promise<boolean> {
-  if (user.id === drop.ownerId) return true;
+export async function canViewByEmail(email: string, drop: PermDrop): Promise<boolean> {
+  if (drop.viewMode === 'public') return true;
+  const owner = await findByEmail(email);
+  if (owner?.id === drop.ownerId) return true;
   switch (drop.viewMode) {
-    case 'public': return true;
-    case 'authed': return isMemberEmail(user.email);
-    case 'emails': return isViewerAllowed(drop.id, user.email);
+    case 'authed': return isMemberEmail(email);
+    case 'emails': return isViewerAllowed(drop.id, email);
     default: return false;
   }
+}
+
+export async function canView(user: PermUser, drop: PermDrop): Promise<boolean> {
+  if (user.id === drop.ownerId) return true;
+  return canViewByEmail(user.email, drop);
 }
 
 export async function setViewMode(dropId: string, mode: ViewMode): Promise<void> {
