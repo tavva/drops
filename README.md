@@ -28,6 +28,7 @@ Good for the things you don't want on your main app's domain: Storybook builds, 
 - Atomic versions. Each upload writes to a fresh `drops/<versionId>/` prefix, then one `UPDATE` flips readers over. Nobody ever sees a half-written drop.
 - Two-origin isolation. Control plane and serving plane run on separate hostnames in the same process, so uploaded HTML can't reach session cookies or upload routes.
 - Google OAuth gated by `ALLOWED_DOMAIN`. Outside collaborators go in the `allowed_emails` table; there's no admin UI.
+- Viewers without a Google account can sign in via a one-time emailed magic link (to an address already on a drop's viewer list). Requires `MAIL_PROVIDER=resend`; with the default `console` provider the link is only logged, not delivered.
 - Path hardening (NFC normalisation, no traversal, no control chars, no leading dots) and zip hardening (no symlinks, bomb-ratio rejection).
 - Background GC sweeps orphaned R2 prefixes — failed uploads, replaced versions.
 - One workspace per deploy. No multi-tenancy, no plans for any.
@@ -122,6 +123,9 @@ Routes are wired in `src/index.ts` against `onAppHost` / `onContentHost` plugin 
 | `CONTENT_ORIGIN` | Full URL of the content-serving origin |
 | `PORT` | Defaults to 3000 |
 | `LOG_LEVEL` | `trace`/`debug`/`info`/`warn`/`error`/`silent` |
+| `MAIL_PROVIDER` | `console` (default — captures magic-link sign-in links in logs only, no delivery) or `resend` |
+| `MAIL_FROM` | Sender address for magic-link emails — required when `MAIL_PROVIDER=resend` |
+| `RESEND_API_KEY` | Resend API key — required when `MAIL_PROVIDER=resend` |
 
 ## Deployment (Railway)
 

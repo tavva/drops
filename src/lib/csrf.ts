@@ -4,7 +4,14 @@ import { randomBytes, createHmac, timingSafeEqual } from 'node:crypto';
 import { config } from '@/config';
 
 export const CSRF_COOKIE = 'drops_csrf';
+export const CSRF_ANON_COOKIE = 'csrf_anon';
 export const CSRF_HEADER = 'x-csrf-token';
+
+// A fresh anonymous CSRF context id. The route signs it into the csrf_anon cookie and
+// binds the form's drops_csrf token to it via issueCsrfToken(anonId).
+export function newAnonCsrfId(): string {
+  return randomBytes(18).toString('base64url');
+}
 
 export function issueCsrfToken(contextId: string): string {
   const nonce = randomBytes(24).toString('base64url');

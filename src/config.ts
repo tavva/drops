@@ -17,6 +17,9 @@ const Schema = z.object({
   CONTENT_ORIGIN: z.string().url(),
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(['silent', 'trace', 'debug', 'info', 'warn', 'error']).default('info'),
+  MAIL_PROVIDER: z.enum(['resend', 'console']).default('console'),
+  MAIL_FROM: z.string().email().optional(),
+  RESEND_API_KEY: z.string().min(1).optional(),
 });
 
 export type Config = z.infer<typeof Schema>;
@@ -25,6 +28,9 @@ export function loadConfig(): Config {
   const parsed = Schema.parse(process.env);
   if (parsed.APP_ORIGIN === parsed.CONTENT_ORIGIN) {
     throw new Error('APP_ORIGIN and CONTENT_ORIGIN must differ');
+  }
+  if (parsed.MAIL_PROVIDER === 'resend' && (!parsed.MAIL_FROM || !parsed.RESEND_API_KEY)) {
+    throw new Error('MAIL_PROVIDER=resend requires MAIL_FROM and RESEND_API_KEY');
   }
   return parsed;
 }
