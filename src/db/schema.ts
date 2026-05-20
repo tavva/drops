@@ -73,6 +73,18 @@ export const dropViewers = pgTable('drop_viewers', {
   emailIdx: index('drop_viewers_email_idx').on(t.email),
 }));
 
+export const magicLinkTokens = pgTable('magic_link_tokens', {
+  id: text('id').primaryKey(),
+  email: text('email').notNull(),
+  dropId: uuid('drop_id').notNull().references(() => drops.id, { onDelete: 'cascade' }),
+  next: text('next').notNull(),
+  consumedAt: timestamp('consumed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+}, (t) => ({
+  liveLookupIdx: index('magic_link_tokens_email_drop_idx').on(t.email, t.dropId),
+}));
+
 export const folders = pgTable('folders', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   name: text('name').notNull(),

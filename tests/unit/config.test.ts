@@ -35,4 +35,19 @@ describe('loadConfig', () => {
     process.env = { ...BASE, R2_ENDPOINT: 'http://localhost:9000' };
     expect(loadConfig().R2_ENDPOINT).toBe('http://localhost:9000');
   });
+
+  it('defaults MAIL_PROVIDER to console', () => {
+    process.env = { ...BASE };
+    expect(loadConfig().MAIL_PROVIDER).toBe('console');
+  });
+
+  it('throws when MAIL_PROVIDER=resend without MAIL_FROM or RESEND_API_KEY', () => {
+    process.env = { ...BASE, MAIL_PROVIDER: 'resend' };
+    expect(() => loadConfig()).toThrow(/MAIL_FROM/);
+  });
+
+  it('accepts resend with MAIL_FROM and RESEND_API_KEY', () => {
+    process.env = { ...BASE, MAIL_PROVIDER: 'resend', MAIL_FROM: 'drops@example.com', RESEND_API_KEY: 'rk' };
+    expect(loadConfig().MAIL_PROVIDER).toBe('resend');
+  });
 });

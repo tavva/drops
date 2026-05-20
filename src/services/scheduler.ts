@@ -1,5 +1,7 @@
-// ABOUTME: In-process periodic task runner. Kicks the orphan sweep on startup, then every hour.
+// ABOUTME: In-process periodic task runner. Kicks the orphan sweep and expired-token cleanup
+// ABOUTME: on startup, then every hour.
 import { sweepOrphans } from './gc';
+import { deleteExpiredMagicTokens } from './magicLinkTokens';
 
 export interface ScheduleOpts {
   intervalMs?: number;
@@ -10,7 +12,10 @@ export interface ScheduleOpts {
 export function startOrphanSweep(opts: ScheduleOpts = {}): () => void {
   const interval = opts.intervalMs ?? 3_600_000;
   const log = opts.log ?? ((err) => console.error('orphan sweep failed', err));
-  const tick = () => { sweepOrphans().catch(log); };
+  const tick = () => {
+    sweepOrphans().catch(log);
+    deleteExpiredMagicTokens().catch(log);
+  };
   if (opts.runImmediately !== false) tick();
   const handle = setInterval(tick, interval);
   handle.unref?.();
