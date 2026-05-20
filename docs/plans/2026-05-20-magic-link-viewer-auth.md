@@ -1193,4 +1193,4 @@ Before declaring done (see superpowers:verification-before-completion):
 pnpm typecheck && pnpm lint && pnpm test && pnpm test:e2e
 ```
 
-All four must pass with pristine output. Then update `README.md` / deployment docs to mention the new env vars (`MAIL_PROVIDER`, `MAIL_FROM`, `RESEND_API_KEY`) and that magic-link viewing is dormant until `MAIL_PROVIDER=resend` is set. Commit that doc change.
+All four must pass with pristine output. Then update `README.md` / deployment docs to mention the new env vars (`MAIL_PROVIDER`, `MAIL_FROM`, `RESEND_API_KEY`). Be precise about behaviour: with the default `console` provider the *email option still appears* on the interstitial and tokens are still issued — but no real email is delivered (the link is only captured in-memory/logged), so the feature is unusable in production until `MAIL_PROVIDER=resend` is configured. "Dormant" means "no real delivery", not "the option is hidden". Commit that doc change.
