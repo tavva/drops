@@ -1,7 +1,9 @@
 // ABOUTME: Populates process.env with deterministic test values.
-// ABOUTME: Imported via vitest setupFiles so every worker gets the same environment.
+// ABOUTME: Imported via vitest setupFiles so every worker in a run shares one environment.
+import { TEST_DB_NAME } from './testDbName';
+
 export const TEST_ENV = {
-  DATABASE_URL: 'postgres://drops:drops@localhost:55432/drops_test',
+  DATABASE_URL: `postgres://drops:drops@localhost:55432/${TEST_DB_NAME}`,
   R2_ENDPOINT: 'http://localhost:9000',
   R2_ACCOUNT_ID: 'minio',
   R2_ACCESS_KEY_ID: 'minioadmin',
