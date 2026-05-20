@@ -37,7 +37,7 @@ beforeEach(async () => {
   await db.insert(dropViewers).values({ dropId, email: 'guest@outside.test' });
 
   const { getMailer } = await import('@/lib/mail');
-  (getMailer() as { sent: unknown[] }).sent.length = 0;
+  (getMailer() as unknown as { sent: unknown[] }).sent.length = 0;
 });
 
 function parseCookies(res: { headers: Record<string, unknown> }): Record<string, string> {
@@ -81,7 +81,7 @@ async function tokenCount() {
 
 async function sentCount() {
   const { getMailer } = await import('@/lib/mail');
-  return (getMailer() as { sent: unknown[] }).sent.length;
+  return (getMailer() as unknown as { sent: unknown[] }).sent.length;
 }
 
 describe('POST /auth/magic/request', () => {
