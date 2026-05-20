@@ -168,8 +168,11 @@ Three new app-host routes, registered in `src/index.ts`:
 - **`POST /auth/magic/request`** — origin-checked plus anonymous CSRF, `tightAuthLimit`.
   Normalises the email, resolves the drop from `host`, checks `canViewByEmail`. If
   eligible, creates a token and sends the link. **Always** re-renders `dropSignin.ejs`
-  with an identical notice; the mail send happens after the response decision, so a
-  provider error never changes what the user sees and is only logged. No enumeration.
+  with the same status and notice; the only thing that varies between an eligible and
+  an ineligible request is the per-render CSRF token, never anything revealing
+  eligibility. The mail send happens after the response decision, so a provider error
+  never changes what the user sees and is only logged. The observable invariant is
+  zero token rows and zero sends for an ineligible or malformed email. No enumeration.
 - **`GET /auth/magic/verify?token=…`** — `tightAuthLimit`, `skipCsrf`. Renders
   `magicConfirm.ejs` with a POST button. It **does not consume** the token, so
   email-client and scanner prefetch (which issue GETs) cannot burn it. A malformed or
@@ -256,8 +259,8 @@ the harness requires):
 - `POST /auth/magic/request` for an allowlisted viewer returns 200 with the neutral
   notice, writes exactly one token row, and sends exactly one message.
 - **Enumeration guard:** requests for a non-allowlisted email and for a malformed
-  email each return a byte-identical response and status, write zero token rows, and
-  send nothing.
+  email each return the same status and notice as an eligible request (differing only
+  in the per-render CSRF token), and crucially write zero token rows and send nothing.
 - **Send throttling:** a second request for the same email and drop within the TTL —
   including with a *different* valid `next` path on that drop — returns the neutral
   notice, adds no token row, and sends nothing.

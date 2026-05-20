@@ -130,19 +130,19 @@ export interface Mailer {
 `src/lib/mail/console.ts`:
 
 ```ts
-// ABOUTME: Dev/test Mailer that logs messages and keeps them in-memory for assertions.
-// ABOUTME: Never use in production — nothing is actually delivered.
+// ABOUTME: Dev/test Mailer that captures messages in-memory for assertions instead of delivering.
+// ABOUTME: Records only — no stdout — so test output stays pristine; the route logs sends via pino.
 import type { Mailer, MailMessage } from './types';
 
 export class ConsoleMailer implements Mailer {
   readonly sent: MailMessage[] = [];
   async send(msg: MailMessage): Promise<void> {
     this.sent.push(msg);
-    // eslint-disable-next-line no-console
-    console.log(`[mail] to=${msg.to} subject=${msg.subject}\n${msg.text}`);
   }
 }
 ```
+
+(It captures rather than prints — the request route already logs a send via `req.log`, and tests run with `LOG_LEVEL=silent`, so nothing pollutes test output. Drop the `console.log` assertion from the Task 2 test if you added one.)
 
 `src/lib/mail/index.ts` (Resend backend added in Task 3; for now wire console + a placeholder import):
 
@@ -391,6 +391,32 @@ describe('consumeMagicToken', () => {
     const { consumeMagicToken } = await import('@/services/magicLinkTokens');
     expect(await consumeMagicToken('nope')).toBeNull();
   });
+
+  it('rejects an expired token', async () => {
+    const { db } = await import('@/db');
+    const { magicLinkTokens } = await import('@/db/schema');
+    const { consumeMagicToken } = await import('@/services/magicLinkTokens');
+    await db.insert(magicLinkTokens).values({
+      id: 'expired-tok', email: 'viewer@x.com', dropId, next: '/',
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    expect(await consumeMagicToken('expired-tok')).toBeNull();
+  });
+});
+
+describe('issueMagicToken dedupe vs expiry', () => {
+  it('an expired outstanding token does not dedupe a new request', async () => {
+    const { db } = await import('@/db');
+    const { magicLinkTokens } = await import('@/db/schema');
+    const { issueMagicToken } = await import('@/services/magicLinkTokens');
+    await db.insert(magicLinkTokens).values({
+      id: 'stale-tok', email: 'viewer@x.com', dropId, next: '/',
+      expiresAt: new Date(Date.now() - 1000),
+    });
+    const fresh = await issueMagicToken('viewer@x.com', dropId, '/');
+    expect(fresh.created).toBe(true);
+    expect(fresh.token).not.toBe('stale-tok');
+  });
 });
 ```
 
@@ -556,14 +582,13 @@ In `src/services/permissions.ts`, add `findByEmail` import and `canViewByEmail`,
 import { findByEmail } from '@/services/users';
 // ...
 export async function canViewByEmail(email: string, drop: PermDrop): Promise<boolean> {
+  if (drop.viewMode === 'public') return true;
+  const owner = await findByEmail(email);
+  if (owner?.id === drop.ownerId) return true;
   switch (drop.viewMode) {
-    case 'public': return true;
     case 'authed': return isMemberEmail(email);
     case 'emails': return isViewerAllowed(drop.id, email);
-    default: {
-      const owner = await findByEmail(email);
-      return owner?.id === drop.ownerId;
-    }
+    default: return false;
   }
 }
 
@@ -573,7 +598,7 @@ export async function canView(user: PermUser, drop: PermDrop): Promise<boolean> 
 }
 ```
 
-Note: the owner short-circuit stays in `canView` (it has the user id). `canViewByEmail` resolves owner-by-email only in the `default` branch, but for the three known modes the owner is already covered (public→true; authed→owner is a member; emails→owner can still view via `canView`'s id check). Verify the owner-on-`emails` case via the existing bootstrap test still passing in Task 11.
+The owner is resolved by email up front (skipping the lookup only for `public`, where everyone passes), so the Task 6 "owner email always allowed" test passes for an `emails` drop. `canView` keeps its own id-based owner short-circuit for the hot path.
 
 **Step 4: Run to verify pass**
 
@@ -835,13 +860,16 @@ The route: origin-check + anon CSRF (via the registered CSRF middleware — do *
 `tests/integration/magic-request.test.ts` (read `auth-drop-bootstrap.test.ts` for the harness; register `dropBootstrapRoute` + `magicRoutes` + `registerCsrf`). To submit valid CSRF, first GET the interstitial, capture `drops_csrf` + `csrf_anon` from `set-cookie`, and replay them with `_csrf` in the body and an `origin: http://drops.localtest.me:3000` header. Tests:
 
 ```ts
-// allowlisted viewer → token row + one ConsoleMailer message + neutral notice
-// non-allowlisted email → identical notice, zero token rows, zero sends
-// malformed email → identical notice, zero token rows, zero sends
-// second request same (email, drop) different next → still one message, one token row
+// allowlisted viewer → 200, notice present, one token row, one ConsoleMailer message
+// non-allowlisted email → 200, SAME notice, zero token rows, zero sends
+// malformed email (e.g. "nope") → 200, SAME notice, zero token rows, zero sends
+// invalid host/next (no such drop target) → no token, no send
+// second request same (email, drop) with a DIFFERENT valid next path → still one message, one token row
 ```
 
-Assert message capture by importing the memoised mailer: `const { getMailer } = await import('@/lib/mail'); (getMailer() as any).sent`. Ensure `MAIL_PROVIDER` is `console` under test (it is — TEST_ENV omits it, so it defaults to console). Reset the mailer between tests by clearing its `sent` array, or by deleting `magic_link_tokens` rows in `beforeEach` and reading send counts as deltas.
+Enumeration-safety assertion: compare the eligible and ineligible responses on `statusCode` and on the notice text (e.g. both `res.body.includes(NOTICE)`), **not** raw body equality — the embedded `drops_csrf` token differs every render by design. The security guarantee under test is "zero token rows + zero sends for ineligible/malformed", which is observable in the DB and the mailer.
+
+Assert message capture via the memoised mailer: `const { getMailer } = await import('@/lib/mail'); const mailer = getMailer() as { sent: unknown[] };` then read `mailer.sent.length`. `MAIL_PROVIDER` defaults to `console` under test (TEST_ENV omits it). Because `getMailer()` memoises, clear `mailer.sent.length = 0` in `beforeEach` alongside deleting `magic_link_tokens` rows.
 
 **Step 2: Run to verify they fail**
 
@@ -852,8 +880,8 @@ Run: `pnpm test -- tests/integration/magic-request.test.ts` → FAIL (route miss
 ```ts
 // ABOUTME: Magic-link viewer auth — POST /auth/magic/request emails a one-time sign-in link
 // ABOUTME: to an eligible address; GET/POST /auth/magic/verify (Task 11) complete the login.
-import type { FastifyPluginAsync } from 'fastify';
-import { parseDropHost } from '@/lib/dropHost';
+import type { FastifyPluginAsync, FastifyReply } from 'fastify';
+import { parseDropHost, dropTargetFromNext } from '@/lib/dropHost';
 import { findByUsername } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
 import { canViewByEmail } from '@/services/permissions';
@@ -867,15 +895,27 @@ import { config } from '@/config';
 
 const NOTICE = 'If that address can view this drop, a sign-in link is on its way.';
 
-function renderInterstitial(reply, { host, next, anonId, notice }) {
+interface InterstitialParams { host: string; next: string; notice: string | null; }
+
+function renderInterstitial(reply: FastifyReply, { host, next, notice }: InterstitialParams): FastifyReply {
+  const anonId = newAnonCsrfId();
   reply.setCookie(CSRF_ANON_COOKIE, signCookie(anonId, config.SESSION_SECRET), appCookieOptions());
   const csrfToken = issueCsrfToken(anonId);
   reply.setCookie(CSRF_COOKIE, csrfToken, appCookieOptions({ httpOnly: false }));
-  const googleHref = new URL('/auth/login', config.APP_ORIGIN);
   const selfUrl = new URL('/auth/drop-bootstrap', config.APP_ORIGIN);
   selfUrl.searchParams.set('host', host); selfUrl.searchParams.set('next', next);
+  const googleHref = new URL('/auth/login', config.APP_ORIGIN);
   googleHref.searchParams.set('next', selfUrl.toString());
   return reply.view('dropSignin.ejs', { host, next, googleHref: googleHref.toString(), csrfToken, notice });
+}
+
+// Build the wrapped /auth/drop-bootstrap resume URL and validate it points at a real drop target.
+// Returns null when host/next don't resolve — the route then no-ops (no token, neutral notice).
+function wrappedNext(host: string, next: string): string | null {
+  const wrapped = new URL('/auth/drop-bootstrap', config.APP_ORIGIN);
+  wrapped.searchParams.set('host', host);
+  wrapped.searchParams.set('next', next);
+  return dropTargetFromNext(wrapped.toString()) ? wrapped.toString() : null;
 }
 
 export const magicRoutes: FastifyPluginAsync = async (app) => {
@@ -883,37 +923,41 @@ export const magicRoutes: FastifyPluginAsync = async (app) => {
     const body = (req.body ?? {}) as Record<string, string | undefined>;
     const host = (body.host ?? '').toLowerCase();
     const parsed = parseDropHost(host);
-    const next = body.next && body.next.startsWith('/') ? body.next : '/';
-    const anonId = req.cookies[CSRF_ANON_COOKIE]
-      ? newAnonCsrfId()   // rotate on each render; simplest is a fresh id
-      : newAnonCsrfId();
     if (!parsed) return reply.code(404).send('not_found');
-
+    const next = body.next && body.next.startsWith('/') && !body.next.startsWith('//') ? body.next : '/';
     const email = (body.email ?? '').trim();
-    const send = async () => {
+
+    const issueAndSend = async () => {
+      if (!isLikelyEmail(email)) return;
+      const resume = wrappedNext(host, next);
+      if (!resume) return;                                  // next/host not a valid drop target
       const owner = await findByUsername(parsed.username);
       const drop = owner ? await findByOwnerAndName(owner.id, parsed.dropname) : null;
       if (!drop) return;
-      if (!isLikelyEmail(email)) return;
       if (!(await canViewByEmail(email, { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode }))) return;
-      const wrapped = new URL('/auth/drop-bootstrap', config.APP_ORIGIN);
-      wrapped.searchParams.set('host', host); wrapped.searchParams.set('next', next);
-      const { token, created } = await issueMagicToken(email, drop.id, wrapped.toString());
+      const { token, created } = await issueMagicToken(email, drop.id, resume);
       if (!created) return;
       const link = new URL('/auth/magic/verify', config.APP_ORIGIN);
       link.searchParams.set('token', token);
-      const text = `Sign in to view this drop:\n${link.toString()}\nThis link expires in 15 minutes.`;
       try {
-        await getMailer().send({ to: normaliseEmail(email), subject: 'Your sign-in link', text, html: `<p><a href="${link.toString()}">Sign in to view this drop</a></p><p>Expires in 15 minutes.</p>` });
+        await getMailer().send({
+          to: normaliseEmail(email),
+          subject: 'Your sign-in link',
+          text: `Sign in to view this drop:\n${link.toString()}\nThis link expires in 15 minutes.`,
+          html: `<p><a href="${link.toString()}">Sign in to view this drop</a></p><p>Expires in 15 minutes.</p>`,
+        });
+        req.log.info({ drop_id: drop.id }, 'magic link sent');
       } catch (e) { req.log.warn({ err: e }, 'magic link send failed'); }
     };
-    await send();
-    return renderInterstitial(reply, { host, next, anonId, notice: NOTICE });
+    await issueAndSend();
+    return renderInterstitial(reply, { host, next, notice: NOTICE });
   });
 };
 ```
 
-Note the `next` stored on the token is the **wrapped** `/auth/drop-bootstrap?host=…&next=…` URL, which `dropTargetFromNext` knows how to unwrap (see `dropHost.ts`). Simplify the `anonId` rotation block to a single `const anonId = newAnonCsrfId();` — the two-branch form above is a placeholder; collapse it.
+The `next` stored on the token is the **wrapped** `/auth/drop-bootstrap?host=…&next=…` URL, which `dropTargetFromNext` unwraps at verify time (see `dropHost.ts`). Validating it with `dropTargetFromNext` at request time satisfies the design's "`next` validated on the way in" — a bad host/path issues no token.
+
+**On enumeration-safety and the CSRF token:** every render rotates `csrf_anon` and embeds a fresh `drops_csrf` token, so two responses are never literally byte-for-byte equal. What must be identical between eligible and ineligible (and malformed) inputs is the **status code and the visible notice**, with the only differences confined to that random CSRF token. The test below asserts exactly that, not raw byte-equality.
 
 **Step 4: Run to verify pass**
 
@@ -943,6 +987,7 @@ GET renders a confirmation page with a POST button and the token in a hidden fie
 
 ```ts
 // GET /auth/magic/verify?token=… renders confirm page, token NOT consumed (POST later still works)
+// GET with a malformed token (wrong shape) → 400 + magicExpired.ejs
 // POST /auth/magic/verify with token → creates kind='viewer' user, 302 to drop-host /auth/bootstrap with handoff
 // POST replay with same token → magicExpired.ejs, no new session
 // member email via magic link → content session, member row kind unchanged
@@ -962,9 +1007,12 @@ import { consumeMagicToken } from '@/services/magicLinkTokens';
 import { findByEmail, createViewerUser } from '@/services/users';
 import { completeViewerLogin } from './complete';
 
+// Tokens are randomBytes(32).toString('base64url') → 43 base64url chars.
+const TOKEN_SHAPE = /^[A-Za-z0-9_-]{40,48}$/;
+
   app.get('/auth/magic/verify', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
     const token = (req.query as Record<string, string | undefined>).token ?? '';
-    if (!token) return reply.code(400).view('magicExpired.ejs', {});
+    if (!TOKEN_SHAPE.test(token)) return reply.code(400).view('magicExpired.ejs', {});
     return reply.view('magicConfirm.ejs', { token });   // does NOT consume
   });
 
@@ -1035,25 +1083,82 @@ git commit -m "feat(auth): wire magic-link routes and sweep expired tokens"
 
 ---
 
-## Task 13: E2E happy path
+## Task 13: E2E happy path (inject-based)
 
 **Files:**
-- Modify: the existing Playwright happy-path spec under `tests/e2e/` (locate it first)
-- Test: the spec itself
+- Create: `tests/e2e/magic-link.spec.ts`
 
-**Step 1: Extend the spec**
+The existing e2e specs (`tests/e2e/drop.spec.ts`) are **not** browser-driven — Playwright is used as a runner and requests go through `app.inject` against an in-process server built with `buildServer()`. The Playwright config has no `webServer`. Model the new spec on `drop.spec.ts`: set env, `setupTestDatabase()`, `resetBucket()`, build the server, register the needed routes, and drive the flow with `inject`, following cookies and the handoff redirect by hand. Capture the link from the in-process `ConsoleMailer` via `getMailer()`.
 
-After locating the e2e drop-serve happy path, add a flow: as a logged-out browser, visit a drop whose viewer list contains a non-member email, choose *Email me a sign-in link*, submit the email. Read the link from the `ConsoleMailer` capture — expose it to the test via a test-only hook (e.g. the e2e app uses `MAIL_PROVIDER=console` and the spec reads the captured `sent[]` through an in-process handle, or the link is logged and parsed from server output). Follow the link, click the confirmation button, and assert the drop content renders.
+**Step 1: Write the spec** (`tests/e2e/magic-link.spec.ts`)
+
+Outline (fill in cookie-threading from `drop.spec.ts`):
+
+```ts
+// ABOUTME: End-to-end magic-link viewer flow over app.inject: request → confirm → verify → serve.
+import { test, expect } from '@playwright/test';
+// ...same env preamble as drop.spec.ts...
+
+test('non-member views a drop via an emailed magic link', async () => {
+  // setup db + bucket; create owner 'alice', a drop 'foo' with viewMode 'emails',
+  // add dropViewers row for 'guest@outside.test', and upload one file (reuse the
+  // multipart upload pattern from drop.spec.ts) so the drop has a current version.
+
+  // build server, register: dropBootstrapRoute, magicRoutes, bootstrapRoute (drop host),
+  // dropServeRoute (drop host), registerCsrf on the app host.
+
+  const dropHostUrl = '/'; // served on host 'alice--foo.content.localtest.me'
+
+  // 1) GET interstitial to obtain csrf cookies
+  const page = await app.inject({ method: 'GET',
+    url: '/auth/drop-bootstrap?host=alice--foo.content.localtest.me&next=%2F',
+    headers: { host: 'drops.localtest.me' } });
+  // parse drops_csrf + csrf_anon from page.headers['set-cookie'], grab _csrf value
+
+  // 2) POST request a link
+  await app.inject({ method: 'POST', url: '/auth/magic/request',
+    headers: { host: 'drops.localtest.me', origin: 'http://drops.localtest.me:3000',
+               cookie: `${csrfAnonCookie}; drops_csrf=${csrf}` },
+    payload: `host=alice--foo.content.localtest.me&next=%2F&email=guest@outside.test&_csrf=${csrf}` });
+
+  // 3) read the link from the in-process mailer
+  const { getMailer } = await import('../../src/lib/mail');
+  const sent = (getMailer() as { sent: { text: string }[] }).sent;
+  const token = new URL(sent.at(-1)!.text.match(/https?:\S+/)![0]).searchParams.get('token')!;
+
+  // 4) GET confirm (non-consuming), then 5) POST verify
+  await app.inject({ method: 'GET', url: `/auth/magic/verify?token=${token}`,
+    headers: { host: 'drops.localtest.me' } });
+  const verify = await app.inject({ method: 'POST', url: '/auth/magic/verify',
+    headers: { host: 'drops.localtest.me', origin: 'http://drops.localtest.me:3000' },
+    payload: `token=${token}` });
+  expect(verify.statusCode).toBe(302);          // → drop-host /auth/bootstrap?token=…
+
+  // 6) follow the handoff to the drop-host bootstrap (sets drops_drop_session)
+  const bootUrl = new URL(verify.headers.location as string);
+  const boot = await app.inject({ method: 'GET', url: bootUrl.pathname + bootUrl.search,
+    headers: { host: bootUrl.hostname } });
+  expect(boot.statusCode).toBe(302);
+  const dropCookie = /* drops_drop_session from boot.headers['set-cookie'] */;
+
+  // 7) serve content with the drop-session cookie
+  const content = await app.inject({ method: 'GET', url: '/',
+    headers: { host: 'alice--foo.content.localtest.me', cookie: dropCookie } });
+  expect(content.statusCode).toBe(200);
+  expect(content.body).toContain('Hello from fixture');
+  await app.close();
+});
+```
 
 **Step 2: Run**
 
 Run: `pnpm test:e2e`
-Expected: PASS (real flow, no mocked auth).
+Expected: PASS (full real flow through inject; no mocked auth).
 
 **Step 3: Commit**
 
 ```bash
-git add tests/e2e
+git add tests/e2e/magic-link.spec.ts
 git commit -m "test(e2e): magic-link viewer happy path"
 ```
 
