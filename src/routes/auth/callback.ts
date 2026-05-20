@@ -9,6 +9,7 @@ import { isMemberEmail, canSignInAsViewer } from '@/services/allowlist';
 import { createSession, deleteSession } from '@/services/sessions';
 import { createPendingLogin } from '@/services/pendingLogins';
 import { findByEmail, createViewerUser, setUserKind } from '@/services/users';
+import { completeViewerLogin } from './complete';
 import { OAUTH_STATE_COOKIE, allowedNext } from './login';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
 import { tightAuthLimit } from '@/middleware/rateLimit';
@@ -24,12 +25,13 @@ async function completeLogin(
   kind: Kind,
   nextUrl: string,
 ): Promise<FastifyReply> {
-  const sid = await createSession(userId);
-  if (kind === 'member') {
-    reply.setCookie(APP_SESSION_COOKIE, signCookie(sid, config.SESSION_SECRET), appCookieOptions({
-      maxAge: 30 * 24 * 3600,
-    }));
+  if (kind === 'viewer') {
+    return completeViewerLogin(reply, userId, nextUrl);
   }
+  const sid = await createSession(userId);
+  reply.setCookie(APP_SESSION_COOKIE, signCookie(sid, config.SESSION_SECRET), appCookieOptions({
+    maxAge: 30 * 24 * 3600,
+  }));
   // dropTargetFromNext recognises both direct drop-host URLs and app-host /auth/drop-bootstrap
   // wrappers. The wrapper case is what lets a logged-out viewer who followed a shared drop link
   // complete the drop-cookie bootstrap without ever holding an app-session cookie.
@@ -40,9 +42,6 @@ async function completeLogin(
     bootstrap.searchParams.set('token', token);
     bootstrap.searchParams.set('next', dropTarget.path);
     return reply.redirect(bootstrap.toString(), 302);
-  }
-  if (kind === 'viewer') {
-    return reply.redirect(new URL('/auth/goodbye', config.APP_ORIGIN).toString(), 302);
   }
   return reply.redirect(nextUrl, 302);
 }
