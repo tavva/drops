@@ -5,7 +5,8 @@ import { parseDropHost, dropTargetFromNext } from '@/lib/dropHost';
 import { findByUsername, findByEmail, createViewerUser } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
 import { canViewByEmail } from '@/services/permissions';
-import { issueMagicToken, consumeMagicToken } from '@/services/magicLinkTokens';
+import { issueMagicToken, consumeMagicToken, MAGIC_TTL_SECONDS } from '@/services/magicLinkTokens';
+import { magicLinkEmail } from '@/lib/mail/magicLinkEmail';
 import { isLikelyEmail, normaliseEmail } from '@/lib/email';
 import { issueCsrfToken, CSRF_COOKIE, CSRF_ANON_COOKIE, newAnonCsrfId, requestOriginOk } from '@/lib/csrf';
 import { signCookie, appCookieOptions } from '@/lib/cookies';
@@ -74,9 +75,11 @@ export const magicRoutes: FastifyPluginAsync = async (app) => {
       try {
         await getMailer().send({
           to: normaliseEmail(email),
-          subject: 'Your sign-in link',
-          text: `Sign in to view this drop:\n${link.toString()}\nThis link expires in 15 minutes.`,
-          html: `<p><a href="${link.toString()}">Sign in to view this drop</a></p><p>Expires in 15 minutes.</p>`,
+          ...magicLinkEmail({
+            link: link.toString(),
+            dropHost: host,
+            expiresMinutes: Math.round(MAGIC_TTL_SECONDS / 60),
+          }),
         });
         req.log.info({ drop_id: drop.id }, 'magic link sent');
       } catch (e) { req.log.warn({ err: e }, 'magic link send failed'); }
