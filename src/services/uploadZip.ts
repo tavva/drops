@@ -13,6 +13,7 @@ import { s3, deletePrefix } from '@/lib/r2';
 import { config } from '@/config';
 import { mimeFor } from '@/lib/mime';
 import { sanitisePath } from '@/lib/path';
+import { shouldIgnore } from '@/views/static/upload-ignore.js';
 import { UPLOAD_LIMITS, UploadResult, UploadedFile } from './upload';
 import { UploadError } from './uploadErrors';
 
@@ -112,6 +113,7 @@ export async function uploadZip(r2Prefix: string, stream: Readable): Promise<Upl
     const prepared: PreparedEntry[] = [];
     for (const entry of all) {
       if (entry.fileName.endsWith('/')) continue;
+      if (shouldIgnore(entry.fileName)) continue;
       if (isSymlink(entry)) throw new UploadError('zip_symlink');
       const res = sanitisePath(entry.fileName);
       if (!res.ok) throw new UploadError('path_rejected', `path rejected (${res.reason}): ${entry.fileName}`);

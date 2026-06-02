@@ -1,4 +1,4 @@
-// ABOUTME: Unit tests for the client-side upload ignore list (OS metadata filter).
+// ABOUTME: Unit tests for the upload ignore list (OS metadata filter).
 // ABOUTME: Exercises the pure `shouldIgnore` function shared by the folder and zip flows.
 import { describe, it, expect } from 'vitest';
 import { shouldIgnore } from '../../src/views/static/upload-ignore.js';
@@ -17,6 +17,9 @@ describe('shouldIgnore', () => {
     'site/__MACOSX/bar',
     '.AppleDouble/foo',
     'site/.AppleDouble/bar',
+    '.thumbnail',
+    'sub/.thumbnail',
+    'a/b/c/.thumbnail',
   ])('ignores %p', (path) => {
     expect(shouldIgnore(path)).toBe(true);
   });
