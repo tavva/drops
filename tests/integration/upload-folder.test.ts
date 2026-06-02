@@ -59,6 +59,26 @@ describe('uploadFolderParts', () => {
     });
   });
 
+  it('skips a .thumbnail entry instead of choking', async () => {
+    const res = await uploadFolderParts(p, fromBuffers([
+      { filename: 'index.html', bytes: Buffer.from('<html>') },
+      { filename: '.thumbnail', bytes: Buffer.from('junk') },
+      { filename: 'assets/.thumbnail', bytes: Buffer.from('junk') },
+    ]));
+    expect(res.fileCount).toBe(1);
+    expect(await listPrefix(p)).toEqual([p + 'index.html']);
+  });
+
+  it('skips OS metadata junk in a folder upload', async () => {
+    const res = await uploadFolderParts(p, fromBuffers([
+      { filename: 'index.html', bytes: Buffer.from('<html>') },
+      { filename: '.DS_Store', bytes: Buffer.from('junk') },
+      { filename: 'css/.DS_Store', bytes: Buffer.from('junk') },
+    ]));
+    expect(res.fileCount).toBe(1);
+    expect(await listPrefix(p)).toEqual([p + 'index.html']);
+  });
+
   it('enforces per-file size', async () => {
     const big = Buffer.alloc(UPLOAD_LIMITS.perFileBytes + 1, 0);
     await expect(uploadFolderParts(p, fromBuffers([

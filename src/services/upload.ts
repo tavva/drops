@@ -7,6 +7,7 @@ import { s3, deletePrefix } from '@/lib/r2';
 import { config } from '@/config';
 import { mimeFor } from '@/lib/mime';
 import { sanitisePath } from '@/lib/path';
+import { shouldIgnore } from '@/views/static/upload-ignore.js';
 import { UploadError } from './uploadErrors';
 
 export const UPLOAD_LIMITS = {
@@ -45,6 +46,10 @@ export async function uploadFolderParts(
 
   try {
     for await (const part of parts) {
+      if (shouldIgnore(part.filename)) {
+        part.file.resume();
+        continue;
+      }
       if (files.length + 1 > UPLOAD_LIMITS.fileCount) {
         throw new UploadError('file_count');
       }

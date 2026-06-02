@@ -89,13 +89,36 @@ describe('uploadZip', () => {
 
   it('names the offending path in path_rejected errors from zip', async () => {
     const zip = await makeZip([
-      { name: 'site/.DS_Store', data: Buffer.from('x') },
+      { name: 'site/.env', data: Buffer.from('x') },
     ]);
     await expect(uploadZip(p, Readable.from([zip]))).rejects.toMatchObject({
       code: 'path_rejected',
-      message: expect.stringContaining('site/.DS_Store'),
+      message: expect.stringContaining('site/.env'),
     });
     expect(await listPrefix(p)).toEqual([]);
+  });
+
+  it('skips a .thumbnail entry instead of choking', async () => {
+    const zip = await makeZip([
+      { name: 'index.html', data: Buffer.from('<html>') },
+      { name: '.thumbnail', data: Buffer.from('junk') },
+      { name: 'assets/.thumbnail', data: Buffer.from('junk') },
+    ]);
+    const res = await uploadZip(p, Readable.from([zip]));
+    expect(res.fileCount).toBe(1);
+    expect(await listPrefix(p)).toEqual([p + 'index.html']);
+  });
+
+  it('skips OS metadata junk inside a zip', async () => {
+    const zip = await makeZip([
+      { name: 'index.html', data: Buffer.from('<html>') },
+      { name: '.DS_Store', data: Buffer.from('junk') },
+      { name: 'css/.DS_Store', data: Buffer.from('junk') },
+      { name: '__MACOSX/index.html', data: Buffer.from('junk') },
+    ]);
+    const res = await uploadZip(p, Readable.from([zip]));
+    expect(res.fileCount).toBe(1);
+    expect(await listPrefix(p)).toEqual([p + 'index.html']);
   });
 
   it('rejects a corrupt archive', async () => {
