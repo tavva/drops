@@ -141,10 +141,14 @@ Routes are wired in `src/index.ts` against `onAppHost` / `onContentHost` plugin 
    - `DATABASE_URL=${{Postgres.DATABASE_URL}}`
    - `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`
    - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-6. Add custom domains on the service:
-   - `drops.<your-domain>` (CNAME to the target Railway gives you).
-   - `content.drops.<your-domain>` (same target).
-   - `*.content.drops.<your-domain>` — Railway Pro supports wildcard custom domains. Add a wildcard `CNAME *.content.drops.<your-domain> → <railway-target>` at your DNS provider. Railway issues a Let's Encrypt wildcard cert via DNS-01 once the record resolves.
+6. Add custom domains on the service. Railway assigns a **different** CNAME target to each — copy the exact value it shows per domain, don't reuse one:
+   - `drops.<your-domain>` → CNAME to its Railway target.
+   - `content.drops.<your-domain>` → CNAME to its (different) Railway target.
+   - `*.content.drops.<your-domain>` — the wildcard; needs Railway Pro. Add `CNAME *.content.drops.<your-domain> → <its-railway-target>`.
+
+   The wildcard cert is issued via DNS-01. Railway can't write to your zone, so it also gives you an ACME-delegation record to add: `CNAME _acme-challenge.content.drops.<your-domain> → <wildcard-id>.authorize.railwaydns.net`. The two single-host certs issue within minutes (HTTP-01); the wildcard cert (DNS-01) can take ~10–25 min after the records resolve.
+
+   **If your DNS is on Cloudflare, set every record to DNS only (grey cloud), not Proxied (orange).** Railway terminates TLS itself; a Cloudflare proxy in front breaks domain verification — the app origin then 404s with an `x-railway-fallback: true` header.
 7. Deploy. The Dockerfile's CMD runs migrations before starting the server.
 8. To allow an extra collaborator from outside `ALLOWED_DOMAIN`:
    ```bash
