@@ -5,6 +5,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { CSRF_COOKIE, CSRF_ANON_COOKIE, CSRF_HEADER, issueCsrfToken, verifyCsrfToken, requestOriginOk } from '@/lib/csrf';
 import { appCookieOptions, verifyCookie } from '@/lib/cookies';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
+import { STATIC_PREFIX } from '@/routes/app/static';
 import { config } from '@/config';
 
 declare module 'fastify' {
@@ -36,6 +37,11 @@ function contextId(req: FastifyRequest): string | null {
 export async function registerCsrf(app: FastifyInstance) {
   app.addHook('preHandler', async (req, reply) => {
     if (req.method !== 'GET') return;
+    // Static assets never render a form and must not rebind drops_csrf. A page loaded during the
+    // pending-login window (choose-username) pulls its stylesheet without the path=/auth pending
+    // cookie, so the only context here would be a stale csrf_anon — rebinding to it breaks the
+    // form's token. Skip issuance entirely for these.
+    if (req.url.startsWith(STATIC_PREFIX)) return;
     const ctx = contextId(req);
     if (!ctx) return;
     const existing = req.cookies[CSRF_COOKIE];
