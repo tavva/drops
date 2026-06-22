@@ -43,4 +43,16 @@ describe('canViewByEmail', () => {
     expect(await canViewByEmail('listed@x.com', d)).toBe(true);
     expect(await canViewByEmail('unlisted@x.com', d)).toBe(false);
   });
+  it('emails + includeDomain: members admitted alongside listed viewers', async () => {
+    const { db } = await import('@/db');
+    const { drops, dropViewers } = await import('@/db/schema');
+    const { canViewByEmail } = await import('@/services/permissions');
+    const [d] = await db.insert(drops).values({
+      ownerId, name: 'd-emails-domain', viewMode: 'emails', includeDomain: true,
+    }).returning();
+    await db.insert(dropViewers).values({ dropId: d!.id, email: 'listed@x.com' });
+    expect(await canViewByEmail('listed@x.com', d!)).toBe(true);       // listed outsider
+    expect(await canViewByEmail('member@example.com', d!)).toBe(true); // domain member via includeDomain
+    expect(await canViewByEmail('stranger@other.com', d!)).toBe(false); // neither
+  });
 });

@@ -30,4 +30,8 @@ export async function canSignInAsViewer(email: string): Promise<boolean> {
   return Boolean(listed);
 }
 
+export async function listAllowedEmails(): Promise<{ email: string }[]> {
+  return db.select({ email: allowedEmails.email }).from(allowedEmails).orderBy(allowedEmails.email);
+}
+
 export const isEmailAllowed = isMemberEmail;
