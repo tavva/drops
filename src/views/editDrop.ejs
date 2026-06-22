@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
     <link rel="stylesheet" href="/app/static/style.css">
     <script type="module" src="/app/static/new-drop.js"></script>
+    <script type="module" src="/app/static/edit-drop.js"></script>
   </head>
   <body class="app-viewport">
     <header class="app-header">
@@ -70,14 +71,14 @@
               <div class="spacer"></div>
               <span class="pill">atomic</span>
             </div>
-            <div id="drop-zone" class="dropzone" style="padding: 36px 24px;">
-              <div class="big-drop" style="width: 52px; height: 66px;">
+            <div id="drop-zone" class="dropzone replace-dropzone">
+              <div class="big-drop replace-icon">
                 <svg viewBox="0 0 24 32" aria-hidden="true">
                   <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
                   <ellipse class="hl" cx="8.5" cy="18" rx="2.2" ry="3"/>
                 </svg>
               </div>
-              <h2 style="font-size: 18px;">Replace contents</h2>
+              <h2 class="replace-title">Replace contents</h2>
               <p class="sub">Folder, zip, or a single file.</p>
               <div class="pickers">
                 <label class="picker-btn">Files
@@ -103,7 +104,7 @@
             </div>
           </form>
 
-          <div class="card mt-16" style="padding: 18px 20px;">
+          <div class="card mt-16 perm-card">
             <div class="section-head">
               <h2>Who can view</h2>
               <div class="spacer"></div>
@@ -132,7 +133,7 @@
                 <input type="radio" name="mode" value="emails" <%= drop.viewMode === 'emails' ? 'checked' : '' %>>
                 <span class="perm-label">
                   <strong>Specific people</strong>
-                  <span class="hint">Only the email addresses you list below.</span>
+                  <span class="hint">Only the email addresses you list below (and, optionally, domain users).</span>
                 </span>
               </label>
               <div class="newdrop-actions">
@@ -142,7 +143,7 @@
 
             <% if (drop.viewMode === 'emails') { %>
               <div class="divider"></div>
-              <h3 style="font-size: 14px; margin-bottom: 10px;">Permitted viewers</h3>
+              <h3 class="viewers-head">Permitted viewers</h3>
 
               <form method="post" action="/app/drops/<%= drop.name %>/domain-access" class="domain-access">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>">
@@ -214,7 +215,7 @@
       <div class="modal">
         <h3>Delete <%= drop.name %>?</h3>
         <p>This removes the drop, all versions, and every file in its R2 prefix. It cannot be undone. Type <code><%= drop.name %></code> to confirm.</p>
-        <form method="post" action="/app/drops/<%= drop.name %>/delete" id="delete-form">
+        <form method="post" action="/app/drops/<%= drop.name %>/delete" id="delete-form" data-drop-name="<%= drop.name %>">
           <div class="field">
             <div class="input-wrap">
               <input type="text" id="delete-confirm" autocomplete="off" spellcheck="false" placeholder="<%= drop.name %>">
@@ -228,23 +229,5 @@
         </form>
       </div>
     </div>
-
-    <script>
-      (() => {
-        const dropName = <%- JSON.stringify(drop.name) %>;
-        const bg = document.getElementById('delete-modal');
-        const openBtn = document.getElementById('delete-btn');
-        const cancelBtn = document.getElementById('delete-cancel');
-        const confirmInput = document.getElementById('delete-confirm');
-        const submitBtn = document.getElementById('delete-submit');
-        if (!bg || !openBtn) return;
-        openBtn.addEventListener('click', () => { bg.hidden = false; confirmInput.focus(); });
-        cancelBtn.addEventListener('click', () => { bg.hidden = true; });
-        bg.addEventListener('click', (e) => { if (e.target === bg) bg.hidden = true; });
-        confirmInput.addEventListener('input', () => {
-          submitBtn.disabled = confirmInput.value !== dropName;
-        });
-      })();
-    </script>
   </body>
 </html>
