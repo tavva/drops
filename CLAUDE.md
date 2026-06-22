@@ -52,3 +52,26 @@ Integration tests need `docker compose up -d` (Postgres on `55432`, MinIO on `90
 - Node ≥ 22.
 - Views are EJS (`src/views/*.ejs`), rendered via `@fastify/view`.
 - British English in user-facing copy.
+- **No inline JS/CSS in views.** The app host sends a strict CSP (`script-src`/`style-src 'self'`, no nonce), which silently blocks inline `<script>`, `on*=` handlers, and `style=` attributes. Put behaviour in `src/views/static/*.js` (served from `/app/static/`, loaded as `<script type="module" src=…>`), drive former inline handlers off `data-*` attributes, and put styles in `style.css`. `tests/unit/views-csp.test.ts` fails if a template regains any inline script/handler/style.
+
+## Deployment
+
+Independent production instances each use a separate Railway project, Postgres database, R2 bucket, and DNS configuration. The code is identical across instances — only env vars differ. Builds use this repo's `Dockerfile`, whose `CMD` runs `db:migrate` before starting the server, so migrations apply automatically on every deploy.
+
+| Instance | Domain | Railway project | project ID | production env ID | app service ID |
+|---|---|---|---|---|---|
+| example-one | `drops.example.com` | `example-drops` | `<project-id>` | `<environment-id>` | `<service-id>` |
+| example-org | `drops.example.net` | `example-drops` | `<project-id>` | `<environment-id>` | `<service-id>` |
+| example-two | `drops.example.com` | `drops` | `<project-id>` | `<environment-id>` | `<service-id>` |
+
+Production deployment connections are maintainer-specific.
+
+To deploy a single instance (staged rollout) without touching the others, deploy a CLI snapshot to that one service instead of pushing:
+
+```bash
+railway link --project <projectID> --environment <envID> --service <serviceID>
+railway up --detach -m "<summary>"
+railway deployment list --json   # poll until newest status is SUCCESS
+```
+
+Smoke-check a deploy is live: `curl -s -o /dev/null -w '%{http_code}' https://<domain>/app/static/edit-drop.js` returns `200` once the new build is serving (a path that 404s before the build is live is the cleanest signal); the app root returns `302` (redirect to login) when healthy.
