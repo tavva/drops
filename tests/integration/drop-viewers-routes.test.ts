@@ -80,6 +80,13 @@ async function removeViewer(cookie: string, csrf: string, name: string, email: s
   });
 }
 
+async function getEdit(cookie: string, name: string) {
+  return appInstance.inject({
+    method: 'GET', url: `/app/drops/${name}`,
+    headers: { host: 'drops.localtest.me', cookie },
+  });
+}
+
 describe('POST /app/drops/:name/viewers', () => {
   it('adds a valid email and redirects', async () => {
     const res = await addViewer(aliceCookie, aliceCsrf, 'site', 'Visitor@Out.TEST');
@@ -133,5 +140,32 @@ describe('POST /app/drops/:name/viewers/:email/delete', () => {
     await addViewer(aliceCookie, aliceCsrf, 'site', 'x@y.z');
     const res = await removeViewer(bobCookie, bobCsrf, 'site', 'x@y.z');
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('editDrop domain-access UI (emails mode)', () => {
+  it('renders the Include domain users toggle + tooltip listing the domain and collaborators', async () => {
+    const { db } = await import('@/db');
+    const { allowedEmails } = await import('@/db/schema');
+    await db.insert(allowedEmails).values({ email: 'collab@partner.test' });
+
+    const res = await getEdit(aliceCookie, 'site');
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('action="/app/drops/site/domain-access"');
+    expect(res.body).toContain('Include domain users');
+    expect(res.body).toContain('@example.com');            // ALLOWED_DOMAIN rule
+    expect(res.body).toContain('collab@partner.test');     // collaborator listed in tooltip
+    // Unchecked by default.
+    expect(res.body).not.toMatch(/name="include"[^>]*checked/);
+  });
+
+  it('checkbox reflects includeDomain=true', async () => {
+    const { db } = await import('@/db');
+    const { drops } = await import('@/db/schema');
+    const { eq } = await import('drizzle-orm');
+    await db.update(drops).set({ includeDomain: true }).where(eq(drops.ownerId, aliceId));
+
+    const res = await getEdit(aliceCookie, 'site');
+    expect(res.body).toMatch(/name="include"[^>]*checked/);
   });
 });

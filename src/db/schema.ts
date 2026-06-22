@@ -1,7 +1,7 @@
 // ABOUTME: Drizzle schema for the drops app: users, sessions, pending logins, drops, drop versions.
 // ABOUTME: Composite FK drops.current_version -> drop_versions(id, drop_id) is added by a raw SQL step in the migration.
 import type { AnyPgColumn } from 'drizzle-orm/pg-core';
-import { pgTable, text, uuid, bigint, integer, timestamp, uniqueIndex, index, primaryKey, check } from 'drizzle-orm/pg-core';
+import { pgTable, text, uuid, bigint, integer, boolean, timestamp, uniqueIndex, index, primaryKey, check } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 export const allowedEmails = pgTable('allowed_emails', {
@@ -44,6 +44,7 @@ export const drops = pgTable('drops', {
   name: text('name').notNull(),
   currentVersion: uuid('current_version'),
   viewMode: text('view_mode').notNull().default('authed'),
+  includeDomain: boolean('include_domain').notNull().default(false),
   folderId: uuid('folder_id').references((): AnyPgColumn => folders.id, { onDelete: 'set null' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

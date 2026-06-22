@@ -18,6 +18,7 @@ export interface PermDrop {
   id: string;
   ownerId: string;
   viewMode: ViewMode | string;
+  includeDomain?: boolean;
 }
 
 export async function canViewByEmail(email: string, drop: PermDrop): Promise<boolean> {
@@ -26,7 +27,9 @@ export async function canViewByEmail(email: string, drop: PermDrop): Promise<boo
   if (owner?.id === drop.ownerId) return true;
   switch (drop.viewMode) {
     case 'authed': return isMemberEmail(email);
-    case 'emails': return isViewerAllowed(drop.id, email);
+    case 'emails':
+      if (await isViewerAllowed(drop.id, email)) return true;
+      return drop.includeDomain === true && await isMemberEmail(email);
     default: return false;
   }
 }
@@ -38,4 +41,8 @@ export async function canView(user: PermUser, drop: PermDrop): Promise<boolean> 
 
 export async function setViewMode(dropId: string, mode: ViewMode): Promise<void> {
   await db.update(drops).set({ viewMode: mode }).where(eq(drops.id, dropId));
+}
+
+export async function setIncludeDomain(dropId: string, include: boolean): Promise<void> {
+  await db.update(drops).set({ includeDomain: include }).where(eq(drops.id, dropId));
 }

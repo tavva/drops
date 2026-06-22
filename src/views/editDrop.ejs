@@ -144,6 +144,27 @@
               <div class="divider"></div>
               <h3 style="font-size: 14px; margin-bottom: 10px;">Permitted viewers</h3>
 
+              <form method="post" action="/app/drops/<%= drop.name %>/domain-access" class="domain-access">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <label class="domain-toggle">
+                  <input type="checkbox" name="include" value="1" <%= drop.includeDomain ? 'checked' : '' %>>
+                  <span>Include domain users</span>
+                </label>
+                <span class="help">
+                  <button type="button" class="help-icon" aria-describedby="domain-tip">?</button>
+                  <span class="tip" id="domain-tip" role="tooltip">
+                    <strong>Domain users</strong>
+                    <span>Anyone with an <code>@<%= allowedDomain %></code> address can view this drop<%= collaborators.length ? ', plus these added collaborators:' : '.' %></span>
+                    <% if (collaborators.length) { %>
+                      <ul class="tip-list">
+                        <% collaborators.forEach(function(c) { %><li><%= c.email %></li><% }) %>
+                      </ul>
+                    <% } %>
+                  </span>
+                </span>
+                <button class="btn sm" type="submit">Save</button>
+              </form>
+
               <% if (viewerError) { %>
                 <p class="hint err" id="viewer-error"><%= viewerError %></p>
               <% } %>

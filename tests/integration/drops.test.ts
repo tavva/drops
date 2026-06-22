@@ -148,4 +148,25 @@ describe('listAllVisibleUnpaged', () => {
     const sorted = [...names].sort();
     expect(names).toEqual(sorted);
   });
+
+  it('includes emails-mode drops with include_domain, but not locked emails drops', async () => {
+    const [domainDrop] = await db.insert(drops).values({
+      ownerId: ownerB, name: 'bobs-domain', viewMode: 'emails', includeDomain: true,
+    }).returning();
+    const [lockedDrop] = await db.insert(drops).values({
+      ownerId: ownerB, name: 'bobs-locked', viewMode: 'emails', includeDomain: false,
+    }).returning();
+    const list = await listAllVisibleUnpaged({ id: ownerA, email: 'a@x.com' });
+    const ids = new Set(list.map((d) => d.id));
+    expect(ids.has(domainDrop!.id)).toBe(true);
+    expect(ids.has(lockedDrop!.id)).toBe(false);
+  });
+
+  it('listAllVisible (paged) also includes include_domain emails drops', async () => {
+    const [domainDrop] = await db.insert(drops).values({
+      ownerId: ownerB, name: 'bobs-domain-paged', viewMode: 'emails', includeDomain: true,
+    }).returning();
+    const list = await listAllVisible({ id: ownerA, email: 'a@x.com' }, 25, 0);
+    expect(new Set(list.map((d) => d.id)).has(domainDrop!.id)).toBe(true);
+  });
 });

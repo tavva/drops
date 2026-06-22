@@ -73,7 +73,7 @@ export const dropBootstrapRoute: FastifyPluginAsync = async (app) => {
 
     const allowed = await canView(
       { id: session.userId, email: session.email },
-      { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode },
+      { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode, includeDomain: drop.includeDomain },
     );
     if (!allowed) {
       return reply.redirect(new URL('/app', config.APP_ORIGIN).toString(), 302);

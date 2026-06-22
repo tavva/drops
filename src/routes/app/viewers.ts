@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { requireCompletedMember } from '@/middleware/auth';
 import { findByOwnerAndName } from '@/services/drops';
 import { addViewer, removeViewer, listViewers } from '@/services/dropViewers';
+import { listAllowedEmails } from '@/services/allowlist';
 import { isValidSlug } from '@/lib/slug';
 import { isLikelyEmail, normaliseEmail } from '@/lib/email';
 import { config } from '@/config';
@@ -23,6 +24,7 @@ export const viewerRoutes: FastifyPluginAsync = async (app) => {
 
     if (!isLikelyEmail(email)) {
       const viewers = await listViewers(drop.id);
+      const collaborators = await listAllowedEmails();
       const { issueCsrfToken, CSRF_COOKIE } = await import('@/lib/csrf');
       const { appCookieOptions } = await import('@/lib/cookies');
       const token = issueCsrfToken(req.session!.id);
@@ -30,6 +32,8 @@ export const viewerRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).view('editDrop.ejs', {
         drop,
         viewers,
+        collaborators,
+        allowedDomain: config.ALLOWED_DOMAIN,
         csrfToken: token,
         contentUrl: `${dropOriginFor(req.user!.username!, name)}/`,
         viewerError: `"${raw}" is not a valid email address.`,
