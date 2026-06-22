@@ -157,6 +157,9 @@ describe('editDrop domain-access UI (emails mode)', () => {
     expect(res.body).toContain('collab@partner.test');     // collaborator listed in tooltip
     // Unchecked by default.
     expect(res.body).not.toMatch(/name="include"[^>]*checked/);
+    // Behaviour is wired via the external module (CSP-safe), and the delete form carries its name.
+    expect(res.body).toContain('src="/app/static/edit-drop.js"');
+    expect(res.body).toContain('data-drop-name="site"');
   });
 
   it('checkbox reflects includeDomain=true', async () => {

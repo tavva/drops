@@ -50,15 +50,6 @@
       </div>
     </div>
 
-    <script>
-      (() => {
-        const input = document.getElementById('uname-input');
-        if (!input) return;
-        input.addEventListener('input', () => {
-          const cleaned = input.value.toLowerCase().replace(/[^a-z0-9-]+/g, '').slice(0, 32);
-          if (cleaned !== input.value) input.value = cleaned;
-        });
-      })();
-    </script>
+    <script type="module" src="/app/static/choose-username.js"></script>
   </body>
 </html>

@@ -42,7 +42,7 @@
         <div class="actions">
           <form method="get" action="/app" class="mine-toggle">
             <label>
-              <input type="checkbox" name="mine" value="1"<% if (mineOnly) { %> checked<% } %> onchange="this.form.submit()">
+              <input type="checkbox" name="mine" value="1"<% if (mineOnly) { %> checked<% } %> data-autosubmit>
               Mine only
             </label>
           </form>
@@ -90,6 +90,6 @@
         <% } %>
       </div>
     </div>
-    <script>window.__folders = <%- JSON.stringify(folderPathList) %>;</script>
+    <script type="module" src="/app/static/dashboard.js"></script>
   </body>
 </html>
