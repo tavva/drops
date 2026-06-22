@@ -1,0 +1,1 @@
+ALTER TABLE "drops" ADD COLUMN "include_domain" boolean DEFAULT false NOT NULL;

@@ -50,7 +50,7 @@ export const loginRoute: FastifyPluginAsync = async (app) => {
         const drop = owner ? await findByOwnerAndName(owner.id, target.dropname) : null;
         const allowed = drop ? await canView(
           { id: found.user.id, email: found.user.email },
-          { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode },
+          { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode, includeDomain: drop.includeDomain },
         ) : false;
         if (allowed) {
           const token = signHandoff(sid, target.hostname, config.SESSION_SECRET, 60);

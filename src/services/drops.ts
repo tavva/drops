@@ -25,6 +25,7 @@ export interface DropSummary {
   name: string;
   ownerId: string;
   viewMode: ViewMode;
+  includeDomain: boolean;
   currentVersion: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -125,7 +126,7 @@ export interface DropListItem extends DropSummary {
 }
 
 type VisibleRow = {
-  d_id: string; owner_id: string; name: string; view_mode: string;
+  d_id: string; owner_id: string; name: string; view_mode: string; include_domain: boolean;
   current_version: string | null; created_at: Date; updated_at: Date;
   folder_id: string | null;
   v_id: string | null; r2_prefix: string | null; byte_size: number | null;
@@ -140,6 +141,7 @@ function toListItem(row: VisibleRow): DropListItem {
     name: row.name,
     ownerId: row.owner_id,
     viewMode: row.view_mode as ViewMode,
+    includeDomain: row.include_domain,
     currentVersion: row.current_version,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -159,7 +161,7 @@ export async function listAllVisible(
 ): Promise<DropListItem[]> {
   const normEmail = normaliseEmail(user.email);
   const rows = await db.execute<VisibleRow>(sql`
-    SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode,
+    SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode, d.include_domain,
            d.current_version, d.created_at, d.updated_at, d.folder_id,
            v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.created_at AS v_created_at,
            u.username
@@ -169,6 +171,7 @@ export async function listAllVisible(
     WHERE d.owner_id = ${user.id}
        OR d.view_mode = 'public'
        OR d.view_mode = 'authed'
+       OR (d.view_mode = 'emails' AND d.include_domain = true)
        OR (d.view_mode = 'emails' AND EXISTS (
              SELECT 1 FROM drop_viewers dv WHERE dv.drop_id = d.id AND dv.email = ${normEmail}))
     ORDER BY d.updated_at DESC
@@ -182,7 +185,7 @@ export async function listAllVisibleUnpaged(
 ): Promise<DropListItem[]> {
   const normEmail = normaliseEmail(user.email);
   const rows = await db.execute<VisibleRow>(sql`
-    SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode,
+    SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode, d.include_domain,
            d.current_version, d.created_at, d.updated_at, d.folder_id,
            v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.created_at AS v_created_at,
            u.username
@@ -192,6 +195,7 @@ export async function listAllVisibleUnpaged(
     WHERE d.owner_id = ${user.id}
        OR d.view_mode = 'public'
        OR d.view_mode = 'authed'
+       OR (d.view_mode = 'emails' AND d.include_domain = true)
        OR (d.view_mode = 'emails' AND EXISTS (
              SELECT 1 FROM drop_viewers dv WHERE dv.drop_id = d.id AND dv.email = ${normEmail}))
     ORDER BY d.name ASC
@@ -219,6 +223,7 @@ function toSummary(
     name: d.name,
     ownerId: d.ownerId,
     viewMode: d.viewMode as ViewMode,
+    includeDomain: d.includeDomain,
     currentVersion: d.currentVersion,
     createdAt: d.createdAt,
     updatedAt: d.updatedAt,

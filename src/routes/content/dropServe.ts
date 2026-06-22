@@ -24,7 +24,7 @@ async function serve(req: FastifyRequest, reply: FastifyReply) {
   if (!drop || !drop.version) return reply.code(404).send('not_found');
   const allowed = await canView(
     { id: req.user!.id, email: req.user!.email },
-    { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode },
+    { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode, includeDomain: drop.includeDomain },
   );
   if (!allowed) return reply.code(404).send('not_found');
   const prefix = drop.version.r2Prefix;
