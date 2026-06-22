@@ -35,7 +35,7 @@ const renameOpen = form && form.kind === 'rename-folder' && form.values.id === n
             data-folder-name="<%= node.name %>"
             data-visible-drop-count="<%= node.visibleDropCount %>"
             data-child-folder-count="<%= node.childFolderIds.length %>"
-            onsubmit="return confirm('Delete folder ‘<%= node.name %>’? <%= node.visibleDropCount %> drop(s) and <%= node.childFolderIds.length %> subfolder(s) will move up one level.');">
+            data-confirm="Delete folder ‘<%= node.name %>’? <%= node.visibleDropCount %> drop(s) and <%= node.childFolderIds.length %> subfolder(s) will move up one level.">
         <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <button type="submit" class="icon-btn" title="delete">🗑</button>
       </form>

@@ -67,7 +67,7 @@ export const magicRoutes: FastifyPluginAsync = async (app) => {
       const owner = await findByUsername(parsed.username);
       const drop = owner ? await findByOwnerAndName(owner.id, parsed.dropname) : null;
       if (!drop) return;
-      if (!(await canViewByEmail(email, { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode }))) return;
+      if (!(await canViewByEmail(email, { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode, includeDomain: drop.includeDomain }))) return;
       const { token, created } = await issueMagicToken(email, drop.id, resume);
       if (!created) return;
       const link = new URL('/auth/magic/verify', config.APP_ORIGIN);

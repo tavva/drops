@@ -64,6 +64,30 @@ async function setMode(cookie: string, csrf: string, name: string, mode: string)
   });
 }
 
+async function setDomain(cookie: string, csrf: string, name: string, include: boolean) {
+  return appInstance.inject({
+    method: 'POST', url: `/app/drops/${name}/domain-access`,
+    headers: {
+      host: 'drops.localtest.me',
+      origin: 'http://drops.localtest.me:3000',
+      cookie,
+      'content-type': 'application/x-www-form-urlencoded',
+      'x-csrf-token': csrf,
+    },
+    payload: include
+      ? `_csrf=${encodeURIComponent(csrf)}&include=1`
+      : `_csrf=${encodeURIComponent(csrf)}`,
+  });
+}
+
+async function readDomain(name: string) {
+  const { db } = await import('@/db');
+  const { drops } = await import('@/db/schema');
+  const { eq } = await import('drizzle-orm');
+  const [row] = await db.select().from(drops).where(eq(drops.name, name));
+  return row!.includeDomain;
+}
+
 describe('POST /app/drops/:name/permissions', () => {
   it('owner flips mode to public', async () => {
     const res = await setMode(aliceCookie, aliceCsrf, 'site','public');
@@ -93,6 +117,32 @@ describe('POST /app/drops/:name/permissions', () => {
 
   it('missing drop → 404', async () => {
     const res = await setMode(aliceCookie, aliceCsrf, 'nope', 'public');
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('POST /app/drops/:name/domain-access', () => {
+  it('owner enables domain access', async () => {
+    const res = await setDomain(aliceCookie, aliceCsrf, 'site', true);
+    expect(res.statusCode).toBe(302);
+    expect(await readDomain('site')).toBe(true);
+  });
+
+  it('owner disables domain access', async () => {
+    await setDomain(aliceCookie, aliceCsrf, 'site', true);
+    const res = await setDomain(aliceCookie, aliceCsrf, 'site', false);
+    expect(res.statusCode).toBe(302);
+    expect(await readDomain('site')).toBe(false);
+  });
+
+  it('non-owner → 404', async () => {
+    const res = await setDomain(bobCookie, bobCsrf, 'site', true);
+    expect(res.statusCode).toBe(404);
+    expect(await readDomain('site')).toBe(false);
+  });
+
+  it('missing drop → 404', async () => {
+    const res = await setDomain(aliceCookie, aliceCsrf, 'nope', true);
     expect(res.statusCode).toBe(404);
   });
 });

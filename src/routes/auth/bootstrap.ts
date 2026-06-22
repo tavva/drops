@@ -37,7 +37,7 @@ export const bootstrapRoute: FastifyPluginAsync = async (app) => {
 
     const allowed = await canView(
       { id: found.user.id, email: found.user.email },
-      { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode },
+      { id: drop.id, ownerId: drop.ownerId, viewMode: drop.viewMode, includeDomain: drop.includeDomain },
     );
     if (!allowed) return reply.code(403).send('forbidden');
 
