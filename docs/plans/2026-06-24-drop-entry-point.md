@@ -118,6 +118,7 @@ Replace `promoteSingleHtmlToIndex` (physical copy) with a pure detection functio
 - Modify: `src/services/upload.ts` (remove `promoteSingleHtmlToIndex` + now-unused S3 imports; add `detectEntryPath`)
 - Modify: `src/routes/app/upload.ts` (call `detectEntryPath`, pass `entryPath` to the version insert)
 - Test: `tests/unit/detect-entry.test.ts` (new)
+- Test: upload-route persistence — extend an existing `tests/integration/upload*.test.ts`, or add `tests/integration/upload-entry.test.ts`
 - Update: any existing test referencing `promoteSingleHtmlToIndex` (grep first)
 
 **Step 1: Write the failing unit test** — `tests/unit/detect-entry.test.ts`:
@@ -171,18 +172,26 @@ export function detectEntryPath(paths: string[]): string | null {
 
 Remove the now-unused imports from `src/services/upload.ts`: `CopyObjectCommand`, `DeleteObjectsCommand`, and `s3`/`config` **iff** nothing else in the file uses them (check before deleting).
 
-**Step 4: Wire into the upload route** — in `src/routes/app/upload.ts`:
+**Step 4: Write the failing upload-route integration test** (needs docker — `docker compose up -d`). Model it on the existing `tests/integration/upload*.test.ts` harness. Upload through the real `POST /app/drops/:name/upload` endpoint and assert `(await findByOwnerAndName(ownerId, name))!.version!.entryPath`:
+- single nested `index.html` zip/folder → `entryPath === 'sub/index.html'`
+- single root non-index html → `entryPath === '<that file>'`
+- a root `index.html` present → `entryPath === null`
+- multiple root htmls (ambiguous) → `entryPath === null`
+
+Run: `pnpm test -- tests/integration/upload-entry.test.ts` → FAIL (route not wired yet).
+
+**Step 5: Wire into the upload route** — in `src/routes/app/upload.ts`:
 
 - Replace the import `promoteSingleHtmlToIndex` with `detectEntryPath`.
 - Delete the `try { result = await promoteSingleHtmlToIndex(...) } catch {...}` block.
 - Before the DB transaction: `const entryPath = detectEntryPath(result.files.map((f) => f.path));`
 - In `tx.insert(dropVersions).values({...})` add `entryPath,`.
 
-**Step 5: Update displaced tests** — `grep -rn promoteSingleHtmlToIndex tests src`. Any test that asserted "single root html is copied to `index.html`" must change to assert `entry_path` is set to that file (and that serve handles it — that lands in Task 4). Convert such assertions; do not delete coverage.
+**Step 6: Update displaced tests** — `grep -rn promoteSingleHtmlToIndex tests src`. Any test that asserted "single root html is copied to `index.html`" must change to assert `entry_path` is set to that file (serve behaviour lands in Task 4). Convert such assertions; do not delete coverage.
 
-**Step 6: Run** — `pnpm test -- tests/unit/detect-entry.test.ts` → PASS. Then `pnpm typecheck` → PASS, `pnpm lint` → PASS (catches unused imports).
+**Step 7: Run** — `pnpm test -- tests/unit/detect-entry.test.ts tests/integration/upload-entry.test.ts` → PASS. Then `pnpm typecheck` → PASS, `pnpm lint` → PASS (catches unused imports).
 
-**Step 7: Commit**
+**Step 8: Commit**
 
 ```bash
 git add src/services/upload.ts src/routes/app/upload.ts tests
@@ -296,7 +305,7 @@ export const setEntryRoute: FastifyPluginAsync = async (app) => {
     if (!drop || !drop.version) return reply.code(404).send('not_found');
 
     const body = (req.body ?? {}) as Record<string, string | undefined>;
-    const entry = (body.entry ?? '').trim();
+    const entry = body.entry ?? ''; // exact stored path — do NOT trim (filenames may have edge whitespace)
 
     if (entry === '') {
       await setEntryPath(drop.version.id, null);
