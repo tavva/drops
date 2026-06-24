@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sanitisePath, PathRejection } from '@/lib/path';
+import { sanitisePath, encodePath, PathRejection } from '@/lib/path';
 
 describe('sanitisePath', () => {
   it.each([
@@ -35,5 +35,18 @@ describe('sanitisePath', () => {
     const precomposed = '\u00e1';
     const res = sanitisePath(combining);
     expect(res).toEqual({ ok: true, path: precomposed });
+  });
+});
+
+describe('encodePath', () => {
+  it('encodes each segment but preserves slashes', () => {
+    expect(encodePath('ui_kits/proptics-app/index.html')).toBe('ui_kits/proptics-app/index.html');
+  });
+  it('escapes spaces and reserved chars per segment', () => {
+    expect(encodePath('Proptics Website.html')).toBe('Proptics%20Website.html');
+    expect(encodePath('a b/c?d.html')).toBe('a%20b/c%3Fd.html');
+  });
+  it('preserves a trailing slash (directory target)', () => {
+    expect(encodePath('ui_kits/proptics-app/')).toBe('ui_kits/proptics-app/');
   });
 });

@@ -44,3 +44,7 @@ export function sanitisePath(input: string): PathResult {
   if (out.length === 0) return { ok: false, reason: PathRejection.Empty };
   return { ok: true, path: out.join('/') };
 }
+
+export function encodePath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
