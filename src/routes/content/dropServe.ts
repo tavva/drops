@@ -32,6 +32,11 @@ async function serve(req: FastifyRequest, reply: FastifyReply) {
   let rest = splat;
   const isRoot = rest === '';
   const entry = drop.version.entryPath;
+  // entry_path is trusted to name a real file: setEntry validates it against the
+  // live prefix and upload re-detects it per version. A nested entry redirects so
+  // the browser base becomes the entry's directory and relative assets resolve; a
+  // root-level entry is served at /. A nested index.htm redirects to its full path
+  // (not the bare dir) because the dir->index fallback below only knows index.html.
   if (isRoot && entry) {
     if (entry.includes('/')) {
       const segs = entry.split('/');
