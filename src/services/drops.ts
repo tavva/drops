@@ -215,6 +215,10 @@ export async function listVersionsForDrop(dropId: string) {
   return db.select().from(dropVersions).where(eq(dropVersions.dropId, dropId));
 }
 
+export async function setEntryPath(versionId: string, entryPath: string | null): Promise<void> {
+  await db.update(dropVersions).set({ entryPath }).where(eq(dropVersions.id, versionId));
+}
+
 function toSummary(
   d: typeof drops.$inferSelect,
   v: typeof dropVersions.$inferSelect | null,
