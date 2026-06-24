@@ -6,7 +6,7 @@ import { findByUsername } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
 import { canView } from '@/services/permissions';
 import { getObject } from '@/lib/r2';
-import { sanitisePath } from '@/lib/path';
+import { sanitisePath, encodePath } from '@/lib/path';
 
 function isHeadOrGet(method: string): method is 'GET' | 'HEAD' {
   return method === 'GET' || method === 'HEAD';
@@ -30,8 +30,20 @@ async function serve(req: FastifyRequest, reply: FastifyReply) {
   const prefix = drop.version.r2Prefix;
 
   let rest = splat;
-  const bareRoot = rest === '' || rest.endsWith('/');
-  if (bareRoot) rest += 'index.html';
+  const isRoot = rest === '';
+  const entry = drop.version.entryPath;
+  if (isRoot && entry) {
+    if (entry.includes('/')) {
+      const segs = entry.split('/');
+      const target = segs[segs.length - 1] === 'index.html'
+        ? segs.slice(0, -1).join('/') + '/'
+        : entry;
+      return reply.redirect('/' + encodePath(target), 302);
+    }
+    rest = entry; // root-level entry → serve its bytes at /
+  } else if (rest === '' || rest.endsWith('/')) {
+    rest += 'index.html';
+  }
   const result = sanitisePath(rest);
   if (!result.ok) return reply.code(404).send('not_found');
   const sanitised = result.path;
@@ -40,7 +52,7 @@ async function serve(req: FastifyRequest, reply: FastifyReply) {
   if (!found && !sanitised.endsWith('.html') && !sanitised.endsWith('/')) {
     found = await getObject(prefix + sanitised + '/index.html');
   }
-  if (!found && bareRoot && drop.version.fileCount === 1) {
+  if (!found && isRoot && drop.version.fileCount === 1) {
     const { listPrefix } = await import('@/lib/r2');
     const keys = await listPrefix(prefix);
     if (keys.length === 1 && keys[0]) {
