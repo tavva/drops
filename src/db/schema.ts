@@ -60,6 +60,7 @@ export const dropVersions = pgTable('drop_versions', {
   r2Prefix: text('r2_prefix').notNull(),
   byteSize: bigint('byte_size', { mode: 'number' }).notNull(),
   fileCount: integer('file_count').notNull(),
+  entryPath: text('entry_path'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   idDropUnique: uniqueIndex('drop_versions_id_drop_unique').on(t.id, t.dropId),

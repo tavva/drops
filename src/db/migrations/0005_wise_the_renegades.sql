@@ -1,0 +1,1 @@
+ALTER TABLE "drop_versions" ADD COLUMN "entry_path" text;
