@@ -2,7 +2,6 @@
 // ABOUTME: Errors cause the partially-written R2 prefix to be removed before the exception propagates.
 import { PassThrough, Readable } from 'node:stream';
 import { Upload } from '@aws-sdk/lib-storage';
-import { CopyObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { s3, deletePrefix } from '@/lib/r2';
 import { config } from '@/config';
 import { mimeFor } from '@/lib/mime';
@@ -105,35 +104,12 @@ async function safeDelete(prefix: string) {
   try { await deletePrefix(prefix); } catch { /* swallow — cleanup is best-effort */ }
 }
 
-function encodeCopySource(bucket: string, key: string): string {
-  const encodedKey = key.split('/').map(encodeURIComponent).join('/');
-  return `${bucket}/${encodedKey}`;
-}
-
-export async function promoteSingleHtmlToIndex(
-  r2Prefix: string,
-  result: UploadResult,
-): Promise<UploadResult> {
-  if (result.files.some((f) => f.path === 'index.html')) return result;
-  const htmls = result.files.filter((f) => f.path.toLowerCase().endsWith('.html'));
-  if (htmls.length !== 1) return result;
-  const single = htmls[0]!;
-  if (single.path.includes('/')) return result;
-
-  const sourceKey = r2Prefix + single.path;
-  const targetKey = r2Prefix + 'index.html';
-  await s3.send(new CopyObjectCommand({
-    Bucket: config.R2_BUCKET,
-    CopySource: encodeCopySource(config.R2_BUCKET, sourceKey),
-    Key: targetKey,
-  }));
-  await s3.send(new DeleteObjectsCommand({
-    Bucket: config.R2_BUCKET,
-    Delete: { Objects: [{ Key: sourceKey }] },
-  }));
-
-  const files = result.files.map((f) =>
-    f === single ? { path: 'index.html', bytes: f.bytes } : f,
-  );
-  return { ...result, files };
+export function detectEntryPath(paths: string[]): string | null {
+  if (paths.includes('index.html')) return null; // root index.html — default lookup serves it
+  const indexes = paths.filter((p) => p.split('/').pop() === 'index.html');
+  if (indexes.length === 1) return indexes[0]!;
+  if (indexes.length >= 2) return null; // ambiguous — owner picks
+  const htmls = paths.filter((p) => /\.html?$/i.test(p));
+  if (htmls.length === 1) return htmls[0]!;
+  return null; // ambiguous or no html
 }
