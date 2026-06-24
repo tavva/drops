@@ -17,6 +17,19 @@
     });
   }
 
+  const entrySel = document.getElementById('entry-select');
+  const entryPrev = document.getElementById('entry-preview');
+  if (entrySel && entryPrev) {
+    const sync = () => {
+      const opt = entrySel.options[entrySel.selectedIndex];
+      const url = opt && opt.dataset.preview;
+      if (url) { entryPrev.href = url; entryPrev.hidden = false; }
+      else { entryPrev.hidden = true; }
+    };
+    entrySel.addEventListener('change', sync);
+    sync();
+  }
+
   const toggle = document.querySelector('.domain-access input[name="include"]');
   if (toggle && toggle.form) {
     // With JS the toggle applies on change, so the no-JS Save fallback is redundant.

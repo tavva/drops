@@ -63,6 +63,27 @@
             <% } else { %>
               <p class="hint">No version uploaded yet.</p>
             <% } %>
+            <% if (drop.version && entryCandidates.length) { %>
+              <form method="post" action="/app/drops/<%= drop.name %>/entry" class="entry-form<%= showEntryPicker ? ' needs-entry' : '' %>">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <label class="entry-label" for="entry-select">Homepage (served at <code>/</code>)</label>
+                <% if (showEntryPicker) { %>
+                  <p class="hint err">No homepage found — choose the page to serve at <code>/</code>.</p>
+                <% } %>
+                <div class="entry-row">
+                  <select id="entry-select" name="entry">
+                    <option value=""<%= currentEntry === '' ? ' selected' : '' %>>— none (use index.html) —</option>
+                    <% entryCandidates.forEach(function(c) { %>
+                      <option value="<%= c.path %>" data-preview="<%= c.preview %>"<%= currentEntry === c.path ? ' selected' : '' %>><%= c.path %></option>
+                    <% }) %>
+                  </select>
+                  <a id="entry-preview" class="btn ghost sm" href="#" target="_blank" rel="noopener" hidden>Preview ↗</a>
+                  <button class="btn primary sm" type="submit">Save</button>
+                </div>
+              </form>
+            <% } else if (drop.version && !homepageResolves) { %>
+              <p class="hint">This drop has no HTML page, so <code>/</code> has nothing to show. Upload an <code>index.html</code> or a single HTML file.</p>
+            <% } %>
           </div>
 
           <form id="new-drop-form" class="card" data-csrf="<%= csrfToken %>" data-fixed-name="<%= drop.name %>">
