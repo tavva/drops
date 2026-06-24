@@ -34,6 +34,7 @@ export interface DropSummary {
     r2Prefix: string;
     byteSize: number;
     fileCount: number;
+    entryPath: string | null;
     createdAt: Date;
   } | null;
 }
@@ -130,7 +131,7 @@ type VisibleRow = {
   current_version: string | null; created_at: Date; updated_at: Date;
   folder_id: string | null;
   v_id: string | null; r2_prefix: string | null; byte_size: number | null;
-  file_count: number | null; v_created_at: Date | null;
+  file_count: number | null; entry_path: string | null; v_created_at: Date | null;
   username: string | null;
   [key: string]: unknown;
 };
@@ -147,7 +148,7 @@ function toListItem(row: VisibleRow): DropListItem {
     updatedAt: row.updated_at,
     version: row.v_id ? {
       id: row.v_id, r2Prefix: row.r2_prefix!, byteSize: Number(row.byte_size!),
-      fileCount: row.file_count!, createdAt: row.v_created_at!,
+      fileCount: row.file_count!, entryPath: row.entry_path, createdAt: row.v_created_at!,
     } : null,
     ownerUsername: row.username,
     folderId: row.folder_id,
@@ -163,7 +164,7 @@ export async function listAllVisible(
   const rows = await db.execute<VisibleRow>(sql`
     SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode, d.include_domain,
            d.current_version, d.created_at, d.updated_at, d.folder_id,
-           v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.created_at AS v_created_at,
+           v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.entry_path, v.created_at AS v_created_at,
            u.username
     FROM drops d
     INNER JOIN users u ON u.id = d.owner_id
@@ -187,7 +188,7 @@ export async function listAllVisibleUnpaged(
   const rows = await db.execute<VisibleRow>(sql`
     SELECT d.id AS d_id, d.owner_id, d.name, d.view_mode, d.include_domain,
            d.current_version, d.created_at, d.updated_at, d.folder_id,
-           v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.created_at AS v_created_at,
+           v.id AS v_id, v.r2_prefix, v.byte_size, v.file_count, v.entry_path, v.created_at AS v_created_at,
            u.username
     FROM drops d
     INNER JOIN users u ON u.id = d.owner_id
@@ -233,6 +234,7 @@ function toSummary(
           r2Prefix: v.r2Prefix,
           byteSize: v.byteSize,
           fileCount: v.fileCount,
+          entryPath: v.entryPath,
           createdAt: v.createdAt,
         }
       : null,
