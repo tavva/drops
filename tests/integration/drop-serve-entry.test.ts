@@ -132,6 +132,17 @@ describe('drop-host bare-root entry_path serve', () => {
     expect(res.headers.location).toBe('/a%20b/');
   });
 
+  it('returns 404 at / for an ambiguous drop (no index.html, entry_path NULL, multiple htmls)', async () => {
+    const host = hostFor('alice', 'site');
+    const { userId } = await makeUserAndDrop('a@e.com', 'alice', 'member', 'site', 'authed', [
+      { path: 'home.html', body: Buffer.from('<html>home</html>'), contentType: 'text/html' },
+      { path: 'about.html', body: Buffer.from('<html>about</html>'), contentType: 'text/html' },
+    ], null);
+    const cookie = await cookieFor(userId, host);
+    const res = await appInstance.inject({ method: 'GET', url: '/', headers: { host, cookie } });
+    expect(res.statusCode).toBe(404);
+  });
+
   it('regression: a drop with a real root index.html and entry_path NULL serves index.html at /', async () => {
     const host = hostFor('alice', 'site');
     const { userId } = await makeUserAndDrop('a@e.com', 'alice', 'member', 'site', 'authed', [
