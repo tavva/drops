@@ -435,7 +435,7 @@ Commit: `docs: document per-drop origin model`.
 
 ## Phase 7 — Deploy checklist (not a code task)
 
-1. the DNS provider: add DNS record `CNAME *.content.drops.example.com → <railway-cname-target>` (reuse whatever the apex content record points at; Railway uses the same target for wildcards).
+1. DNS provider: add `CNAME *.content.drops.example.com → <railway-cname-target>` using the target Railway assigns to the wildcard.
 2. Railway: add `*.content.drops.example.com` as a custom domain on the `drops` service. Wait for TLS to provision (Railway → Settings → Networking shows green tick).
 3. Verify: `dig +short any.content.drops.example.com` resolves; `curl -I https://wildcard-test.content.drops.example.com` returns a Railway 404 (no drop matches; expected).
 4. Deploy the branch. First request to any drop triggers the bootstrap hop; subsequent requests are cookie-served.

@@ -3,6 +3,7 @@ dist/
 .env
 .env.*
 !.env.example
+/CLAUDE.local.md
 coverage/
 playwright-report/
 test-results/
