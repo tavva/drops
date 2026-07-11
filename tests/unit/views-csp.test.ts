@@ -26,4 +26,11 @@ describe('views are CSP-clean', () => {
     expect(content, 'inline style= attribute').not.toMatch(/\sstyle="/);
     expect(content, 'inline on*= handler').not.toMatch(/\son[a-z]+="/);
   });
+
+  it('keeps the CLI approval view free of CSP-blocked remote fonts and preconnects', () => {
+    const content = readFileSync(join(process.cwd(), 'src/views/cliAuthorize.ejs'), 'utf8');
+    expect(content).not.toContain('fonts.googleapis.com');
+    expect(content).not.toContain('fonts.gstatic.com');
+    expect(content).not.toContain('rel="preconnect"');
+  });
 });

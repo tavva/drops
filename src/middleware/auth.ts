@@ -68,7 +68,9 @@ export async function requireCompletedMember(req: FastifyRequest, reply: Fastify
   await requireAppSession(req, reply);
   if (reply.sent) return;
   if (req.user && req.user.username === null) {
-    return reply.redirect(new URL('/auth/choose-username', config.APP_ORIGIN).toString(), 302);
+    const target = new URL('/auth/choose-username', config.APP_ORIGIN);
+    if (req.method === 'GET') target.searchParams.set('next', currentUrl(req, config.APP_ORIGIN));
+    return reply.redirect(target.toString(), 302);
   }
 }
 
@@ -102,4 +104,3 @@ function bounceToDropBootstrap(reply: FastifyReply, host: string, pathOrUrl: str
   target.searchParams.set('next', pathOrUrl);
   return reply.redirect(target.toString(), 302);
 }
-

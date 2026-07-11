@@ -3,6 +3,7 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { requireCliToken } from '@/middleware/cliAuth';
 import { CliAuthorizationRequestError, validateCliRedirectUri } from '@/routes/cli/authorize';
+import { tightAuthLimit } from '@/middleware/rateLimit';
 import {
   CliAuthError,
   exchangeCliAuthorizationCode,
@@ -53,7 +54,35 @@ function validateTokenRequest(body: unknown): TokenRequest | null {
 }
 
 export const cliApiAuthRoutes: FastifyPluginAsync = async (app) => {
-  app.post('/api/v1/auth/token', { config: { skipCsrf: true } }, async (req, reply) => {
+  app.addHook('onSend', async (req, reply, payload) => {
+    if (req.routeOptions.url === '/api/v1/auth/token') reply.header('cache-control', 'no-store');
+    return payload;
+  });
+
+  app.setErrorHandler((error, _req, reply) => {
+    const statusCode = error && typeof error === 'object' && 'statusCode' in error
+      ? error.statusCode
+      : undefined;
+    if (statusCode === 413) {
+      return reply.code(413).send({
+        error: { code: 'payload_too_large', message: 'The token request is too large', details: null },
+      });
+    }
+    if (statusCode === 400) return apiError(reply, 'invalid_request');
+    if (statusCode === 429) {
+      return reply.code(429).send({
+        error: { code: 'rate_limited', message: 'Too many token requests', details: null },
+      });
+    }
+    return reply.code(500).send({
+      error: { code: 'internal_error', message: 'An unexpected error occurred', details: null },
+    });
+  });
+
+  app.post('/api/v1/auth/token', {
+    bodyLimit: 8 * 1024,
+    config: { skipCsrf: true, ...tightAuthLimit },
+  }, async (req, reply) => {
     if (req.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
       return apiError(reply, 'invalid_request');
     }

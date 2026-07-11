@@ -2,14 +2,19 @@
 // ABOUTME: Verifies app-host isolation, browser CSRF boundaries, PKCE failures, and bearer-only API access.
 import { createHash } from 'node:crypto';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { db } from '@/db';
 import { cliAuthorizationCodes, cliTokens, sessions, users } from '@/db/schema';
 import { buildServer } from '@/server';
 import { onAppHost } from '@/middleware/host';
 import { registerCsrf } from '@/middleware/csrf';
+import { registerRateLimit } from '@/middleware/rateLimit';
+import { registerAppSecurity } from '@/middleware/security';
 import { cliDiscoveryRoute } from '@/routes/cli/discovery';
 import { cliAuthorizeRoutes } from '@/routes/cli/authorize';
 import { cliApiAuthRoutes } from '@/routes/cli/apiAuth';
+import { loginRoute } from '@/routes/auth/login';
+import { chooseUsernameRoute } from '@/routes/auth/chooseUsername';
 import { createSession } from '@/services/sessions';
 import { APP_SESSION_COOKIE } from '@/middleware/auth';
 import { CSRF_COOKIE, issueCsrfToken } from '@/lib/csrf';
@@ -18,7 +23,11 @@ import { config } from '@/config';
 
 const app = await buildServer();
 await app.register(onAppHost(async (scoped) => {
+  await registerAppSecurity(scoped);
+  await registerRateLimit(scoped);
   await registerCsrf(scoped);
+  await scoped.register(loginRoute);
+  await scoped.register(chooseUsernameRoute);
   await scoped.register(cliDiscoveryRoute);
   await scoped.register(cliAuthorizeRoutes);
   await scoped.register(cliApiAuthRoutes);
@@ -132,6 +141,7 @@ describe('browser approval', () => {
       method: 'GET', url: authorizeUrl(), headers: { host: 'drops.localtest.me', cookie: browserCookie },
     });
     expect(response.statusCode).toBe(200);
+    expect(response.headers['content-security-policy']).toContain("default-src 'self'");
     expect(response.body).toContain('Authorise Drops CLI');
     expect(response.body).toContain(new URL(config.APP_ORIGIN).host);
     expect(response.body).toContain('read your Drops identity');
@@ -139,6 +149,30 @@ describe('browser approval', () => {
     expect(response.body).toContain('action="/app/cli/authorize/approve"');
     expect(response.body).toContain('action="/app/cli/authorize/deny"');
     expect(response.body).toContain(`value="${csrf}"`);
+    expect(response.body).not.toContain('fonts.googleapis.com');
+  });
+
+  it('preserves the exact approval URL while an existing incomplete member chooses a username', async () => {
+    await db.update(users).set({ username: null }).where(eq(users.id, memberId));
+    const approvalUrl = authorizeUrl();
+    const gated = await app.inject({
+      method: 'GET', url: approvalUrl,
+      headers: { host: 'drops.localtest.me', cookie: browserCookie },
+    });
+    expect(gated.statusCode).toBe(302);
+    const choose = new URL(gated.headers.location!);
+    expect(choose.origin + choose.pathname).toBe(`${config.APP_ORIGIN}/auth/choose-username`);
+    expect(choose.searchParams.get('next')).toBe(new URL(approvalUrl, config.APP_ORIGIN).toString());
+
+    const completed = await app.inject({
+      method: 'POST', url: '/auth/choose-username',
+      headers: browserHeaders(),
+      payload: new URLSearchParams({
+        username: 'member', next: choose.searchParams.get('next')!, _csrf: csrf,
+      }).toString(),
+    });
+    expect(completed.statusCode).toBe(302);
+    expect(completed.headers.location).toBe(new URL(approvalUrl, config.APP_ORIGIN).toString());
   });
 
   it('rejects approve and deny without global CSRF validation', async () => {
@@ -176,6 +210,7 @@ describe('CLI auth API', () => {
     const code = await approve();
     const response = await exchange(code);
     expect(response.statusCode).toBe(200);
+    expect(response.headers['cache-control']).toBe('no-store');
     const body = response.json();
     expect(body).toEqual({
       token: expect.stringMatching(/^drops_cli_/),
@@ -222,7 +257,52 @@ describe('CLI auth API', () => {
       payload: {},
     });
     expect(response.statusCode).toBe(400);
+    expect(response.headers['cache-control']).toBe('no-store');
     expect(response.json().error.code).toBe('invalid_request');
+  });
+
+  it('caps token exchange request bodies at 8 KiB with a secret-safe JSON 413', async () => {
+    const secret = `SECRET_${'x'.repeat(9_000)}`;
+    const response = await app.inject({
+      method: 'POST', url: '/api/v1/auth/token',
+      headers: { host: 'drops.localtest.me', 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.10' },
+      payload: JSON.stringify({ code: secret }),
+    });
+    expect(response.statusCode).toBe(413);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.json()).toEqual({
+      error: { code: 'payload_too_large', message: expect.any(String), details: null },
+    });
+    expect(response.body).not.toContain(secret);
+  });
+
+  it('returns secret-safe JSON for malformed JSON parser errors', async () => {
+    const secret = 'SECRET_MALFORMED_SENTINEL';
+    const response = await app.inject({
+      method: 'POST', url: '/api/v1/auth/token',
+      headers: { host: 'drops.localtest.me', 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.11' },
+      payload: `{"code":"${secret}"`,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.json().error.code).toBe('invalid_request');
+    expect(response.body).not.toContain(secret);
+  });
+
+  it('rate-limits token exchange to 20 requests per minute', async () => {
+    let response;
+    for (let attempt = 0; attempt < 21; attempt += 1) {
+      response = await app.inject({
+        method: 'POST', url: '/api/v1/auth/token',
+        headers: { host: 'drops.localtest.me', 'content-type': 'application/json', 'x-forwarded-for': '198.51.100.12' },
+        payload: {},
+      });
+    }
+    expect(response!.statusCode).toBe(429);
+    expect(response!.headers['content-type']).toContain('application/json');
+    expect(response!.headers['cache-control']).toBe('no-store');
   });
 
   it('rejects a form-encoded token exchange even when every field is otherwise valid', async () => {
