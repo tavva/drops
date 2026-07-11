@@ -25,7 +25,7 @@ describe('MacOsKeychainStore', () => {
     await expect(store.get('https://one.example.com')).resolves.toBe('drops_cli_token');
     expect(harness.requests).toEqual([
       {
-        command: 'security',
+        command: '/usr/bin/security',
         args: [
           'find-generic-password',
           '-a',
@@ -63,26 +63,58 @@ describe('MacOsKeychainStore', () => {
 
   it('writes the secret through stdin with prompt mode last', async () => {
     const token = 'drops_cli_super_secret';
-    const harness = recordingRunner([{ exitCode: 0, stdout: '', stderr: '' }]);
+    const harness = recordingRunner([
+      { exitCode: 0, stdout: '', stderr: '' },
+      { exitCode: 0, stdout: `${token}\n`, stderr: '' },
+    ]);
 
     await new MacOsKeychainStore(harness.runner).set('https://one.example.com', token);
 
-    expect(harness.requests).toEqual([
-      {
-        command: 'security',
+    expect(harness.requests).toHaveLength(2);
+    expect({ command: harness.requests[0]?.command, args: harness.requests[0]?.args }).toEqual({
+      command: '/usr/bin/security',
+      args: [
+        'add-generic-password',
+        '-a',
+        'https://one.example.com',
+        '-s',
+        'global.drops.cli',
+        '-U',
+        '-w',
+      ],
+    });
+    expect(harness.requests[0]?.stdin === `${token}\n${token}\n`).toBe(true);
+    expect(harness.requests[1]).toEqual({
+        command: '/usr/bin/security',
         args: [
-          'add-generic-password',
+          'find-generic-password',
           '-a',
           'https://one.example.com',
           '-s',
           'global.drops.cli',
-          '-U',
           '-w',
         ],
-        stdin: token,
-      },
-    ]);
+      });
     expect(harness.requests[0]?.args).not.toContain(token);
+  });
+
+  it.each(['', 'different-token'])('deletes an unverifiable write when read-back returns %j', async (readBack) => {
+    const token = 'drops_cli_super_secret';
+    const harness = recordingRunner([
+      { exitCode: 0, stdout: '', stderr: '' },
+      { exitCode: 0, stdout: `${readBack}\n`, stderr: '' },
+      { exitCode: 128, stdout: '', stderr: 'cleanup failed' },
+    ]);
+
+    await expect(new MacOsKeychainStore(harness.runner).set('https://one.example.com', token)).rejects.toMatchObject({
+      code: 'keychain_unavailable',
+      exitCode: 3,
+    });
+    expect(harness.requests[2]).toEqual({
+      command: '/usr/bin/security',
+      args: ['delete-generic-password', '-a', 'https://one.example.com', '-s', 'global.drops.cli'],
+    });
+    expect(JSON.stringify(harness.requests[2])).not.toContain(token);
   });
 
   it('deletes only the exact origin item and treats a missing item idempotently', async () => {

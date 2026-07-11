@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { DropsCliError } from './errors.js';
 
 const KEYCHAIN_SERVICE = 'global.drops.cli';
+const SECURITY_EXECUTABLE = '/usr/bin/security';
 const MAX_OUTPUT_BYTES = 8 * 1024;
 
 export interface CredentialStore {
@@ -73,7 +74,7 @@ export class MacOsKeychainStore implements CredentialStore {
 
   async get(origin: string): Promise<string | null> {
     const result = await this.execute({
-      command: 'security',
+      command: SECURITY_EXECUTABLE,
       args: ['find-generic-password', '-a', origin, '-s', KEYCHAIN_SERVICE, '-w'],
     });
     if (itemNotFound(result)) return null;
@@ -83,16 +84,31 @@ export class MacOsKeychainStore implements CredentialStore {
 
   async set(origin: string, token: string): Promise<void> {
     const result = await this.execute({
-      command: 'security',
+      command: SECURITY_EXECUTABLE,
       args: ['add-generic-password', '-a', origin, '-s', KEYCHAIN_SERVICE, '-U', '-w'],
-      stdin: token,
+      stdin: `${token}\n${token}\n`,
     });
     if (result.exitCode !== 0) throw unavailable();
+
+    let verified = false;
+    try {
+      verified = (await this.get(origin)) === token;
+    } catch {
+      // Cleanup below handles a write whose read-back could not be verified.
+    }
+    if (!verified) {
+      try {
+        await this.delete(origin);
+      } catch {
+        // The write still must fail even when best-effort cleanup is unavailable.
+      }
+      throw unavailable();
+    }
   }
 
   async delete(origin: string): Promise<void> {
     const result = await this.execute({
-      command: 'security',
+      command: SECURITY_EXECUTABLE,
       args: ['delete-generic-password', '-a', origin, '-s', KEYCHAIN_SERVICE],
     });
     if (itemNotFound(result)) return;
