@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 // ABOUTME: Parses Drops CLI commands and applies the shared output and process-exit contract.
-// ABOUTME: Currently exposes repository instance initialisation while later commands remain explicit usage errors.
+// ABOUTME: Exposes repository setup, persistent browser authentication, and authenticated deployment.
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
+import { createAuthDependencies, type AuthDependencies } from './auth.js';
+import { parseAuthStatusArguments, runAuthStatusCommand } from './commands/authStatus.js';
 import { parseDeployArguments, runDeployCommand } from './commands/deploy.js';
 import { runInitCommand } from './commands/init.js';
+import { parseLoginArguments, runLoginCommand } from './commands/login.js';
+import { parseLogoutArguments, runLogoutCommand } from './commands/logout.js';
 import { createDeployDependencies, type DeployDependencies } from './deploy.js';
 import { DropsCliError } from './errors.js';
 import { createLifecycleRegistry, type LifecycleRegistry } from './lifecycle.js';
@@ -19,6 +23,7 @@ export interface CliRuntime {
 
 export interface CliDependencies {
   deploy?: DeployDependencies;
+  auth?: AuthDependencies;
 }
 
 interface CommandResult {
@@ -58,6 +63,41 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
   const command = argv[0];
   if (command === undefined) {
     throw usageError('command_required', 'Usage: drops <command>');
+  }
+
+  if (command === '--help' || command === 'help') {
+    if (argv.length !== 1) throw usageError('usage_error', 'Usage: drops --help');
+    return {
+      value: { usage: 'drops <login|logout|auth status|init|deploy>' },
+      human: 'Usage: drops <login|logout|auth status|init|deploy>',
+    };
+  }
+
+  if (command === 'login') {
+    const parsed = parseLoginArguments(argv.slice(1));
+    const result = await runLoginCommand(
+      { ...parsed, onBrowserOpen: () => diagnostic('Authorising in browser…') },
+      dependencies.auth,
+    );
+    return { value: { ...result }, human: `Authenticated to ${result.instance} as ${result.user.username}` };
+  }
+
+  if (command === 'logout') {
+    const parsed = parseLogoutArguments(argv.slice(1));
+    const result = await runLogoutCommand({ ...parsed, cwd }, dependencies.auth);
+    return { value: { ...result }, human: `Logged out of ${result.instance}` };
+  }
+
+  if (command === 'auth') {
+    if (argv[1] !== 'status') {
+      throw usageError('usage_error', 'Usage: drops auth status [origin] [--instance <origin>] [--json]');
+    }
+    const parsed = parseAuthStatusArguments(argv.slice(2));
+    const result = await runAuthStatusCommand({ ...parsed, cwd }, dependencies.auth);
+    const human = result.authenticated
+      ? `Authenticated to ${result.instance} as ${result.user.username}`
+      : `Not authenticated to ${result.instance}`;
+    return { value: { ...result }, human };
   }
 
   if (command === 'deploy') {
@@ -133,5 +173,8 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     cwd: process.cwd(),
     stdout: process.stdout,
     stderr: process.stderr,
-  }, undefined, { deploy: createDeployDependencies(lifecycle.register) });
+  }, undefined, {
+    deploy: createDeployDependencies(lifecycle.register),
+    auth: createAuthDependencies(),
+  });
 }
