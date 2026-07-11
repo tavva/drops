@@ -243,7 +243,7 @@ describe('DropsApiClient errors', () => {
     const token = 'drops_cli_secret';
     const fetch = vi
       .fn<FetchLike>()
-      .mockResolvedValue(jsonResponse({ error: { code: 'bad', message: `Bearer ${token} rejected` } }, 401));
+      .mockResolvedValue(jsonResponse({ error: { code: token, message: `Bearer ${token} rejected` } }, 401));
 
     let thrown: unknown;
     try {
@@ -315,6 +315,31 @@ describe('DropsApiClient errors', () => {
     });
     expect(JSON.stringify(thrown)).not.toContain(token);
   });
+
+  it.each(['drops_cli_server_leak', 'INVALID-CODE', 'a'.repeat(65)])(
+    'reclassifies unsafe structured error code %s without exposing it',
+    async (unsafeCode) => {
+      const fetch = vi.fn<FetchLike>().mockResolvedValue(
+        jsonResponse({ error: { code: unsafeCode, message: 'Rejected', details: null } }, 400),
+      );
+
+      let thrown: unknown;
+      try {
+        await new DropsApiClient(fetch).deployZip({
+          origin: 'https://drops.example.com',
+          token: unsafeCode,
+          name: 'sample',
+          body: Buffer.alloc(0),
+          contentLength: 0,
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toMatchObject({ code: 'server_error', details: null, exitCode: 6 });
+      expect(JSON.stringify(thrown)).not.toContain(unsafeCode);
+    },
+  );
 
   it.each(['unsafe', ['not', 'an', 'object'], 42])(
     'drops non-object structured error details %j',

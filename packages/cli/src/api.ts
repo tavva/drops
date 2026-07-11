@@ -158,9 +158,15 @@ function safeDetails(value: unknown, secrets: string[]): DropsCliErrorDetails {
   return sanitizeJsonValue(value, secrets) as Record<string, unknown>;
 }
 
+function isSafeErrorCode(value: unknown, secrets: string[]): value is string {
+  if (typeof value !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(value)) return false;
+  if (value.startsWith('drops_cli_')) return false;
+  return !secrets.some((secret) => secret.length > 0 && value.includes(secret));
+}
+
 function parseStructuredError(value: unknown, secrets: string[]): StructuredError | null {
   if (!isRecord(value) || !isRecord(value.error)) return null;
-  if (typeof value.error.code !== 'string' || !/^[a-z0-9_]+$/.test(value.error.code)) return null;
+  if (!isSafeErrorCode(value.error.code, secrets)) return null;
   if (typeof value.error.message !== 'string') return null;
 
   const message = redactString(value.error.message.slice(0, 1_000), secrets);
@@ -331,7 +337,6 @@ export class DropsApiClient {
     secrets: string[],
     upload = false,
   ): Promise<never> {
-    const structured = parseStructuredError(await jsonOrNull(response), secrets);
     if (response.status === 401) {
       throw new DropsCliError({
         code: 'not_authenticated',
@@ -340,6 +345,11 @@ export class DropsApiClient {
         exitCode: 3,
       });
     }
+    const body = await jsonOrNull(response);
+    if (isRecord(body) && isRecord(body.error) && !isSafeErrorCode(body.error.code, secrets)) {
+      throw serverError(origin);
+    }
+    const structured = parseStructuredError(body, secrets);
     if (structured?.code === 'authorisation_denied') {
       throw new DropsCliError({ ...structured, instance: origin, exitCode: 3 });
     }
