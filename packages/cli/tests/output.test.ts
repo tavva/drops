@@ -175,4 +175,39 @@ describe('runCli', () => {
     });
     expect(captured.stderr).toBe('');
   });
+
+  it('classifies a parseArgs failure as a usage error', async () => {
+    const captured = capture();
+
+    const exitCode = await runCli(['init', '--unknown', '--json'], { cwd: process.cwd(), ...captured.io });
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(captured.stdout)).toMatchObject({
+      error: { code: 'usage_error', instance: null, details: null },
+    });
+    expect(captured.stderr).toBe('');
+  });
+
+  it('classifies an unexpected TypeError as an internal failure', async () => {
+    const captured = capture();
+
+    const exitCode = await runCli(
+      ['--json'],
+      { cwd: process.cwd(), ...captured.io },
+      async () => {
+        throw new TypeError('unexpected implementation failure');
+      },
+    );
+
+    expect(exitCode).toBe(6);
+    expect(JSON.parse(captured.stdout)).toEqual({
+      error: {
+        code: 'internal_error',
+        message: 'Unexpected CLI error',
+        instance: null,
+        details: null,
+      },
+    });
+    expect(captured.stderr).toBe('');
+  });
 });
