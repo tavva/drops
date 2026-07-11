@@ -228,14 +228,19 @@ export async function waitForBrowserAuthorization(
         });
       });
     };
+    const state = requestUrl.searchParams.get('state');
+    if (state !== options.state) {
+      finish(denied('The browser returned an invalid authorisation response'));
+      response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Invalid authorisation response');
+      return;
+    }
     if (requestUrl.searchParams.get('error') === 'access_denied') {
       finish(denied());
       response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end('Authorisation denied. You may close this window.');
       return;
     }
-    const state = requestUrl.searchParams.get('state');
     const code = requestUrl.searchParams.get('code');
-    if (state !== options.state || code === null || code.length === 0) {
+    if (code === null || code.length === 0) {
       finish(denied('The browser returned an invalid authorisation response'));
       response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Invalid authorisation response');
       return;

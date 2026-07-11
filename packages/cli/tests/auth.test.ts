@@ -119,6 +119,33 @@ describe('loopback browser authorisation', () => {
     await expect(get(`${redirectUri}?state=expected-state&code=again`)).rejects.toThrow();
   });
 
+  it.each([
+    ['missing state', '?error=access_denied'],
+    ['mismatched state', '?state=wrong&error=access_denied'],
+  ])('validates state before accepting a denial with %s', async (_name, query) => {
+    let redirectUri = '';
+    const pending = waitForBrowserAuthorization({
+      origin: 'https://drops.example.com',
+      state: 'expected-state',
+      challenge: 'challenge',
+      timeoutMs: 2_000,
+      portCandidates: [50_128],
+      openBrowser: async (url) => {
+        redirectUri = new URL(url).searchParams.get('redirect_uri')!;
+      },
+    });
+    const settled = pending.catch((error: unknown) => error);
+    await vi.waitFor(() => expect(redirectUri).not.toBe(''));
+    await get(`${redirectUri}${query}`);
+
+    await expect(settled).resolves.toMatchObject({
+      code: 'authorisation_denied',
+      message: 'The browser returned an invalid authorisation response',
+      exitCode: 3,
+    });
+    await expect(get(`${redirectUri}?state=expected-state&code=again`)).rejects.toThrow();
+  });
+
   it('maps the five-minute timeout to authorisation_denied and closes the listener', async () => {
     let redirectUri = '';
     const pending = waitForBrowserAuthorization({
