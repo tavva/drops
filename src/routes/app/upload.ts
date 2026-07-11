@@ -2,16 +2,13 @@
 // ABOUTME: Uploads write to a unique drops/<versionId>/ prefix; commit is an ON CONFLICT + FOR UPDATE swap.
 import type { FastifyPluginAsync } from 'fastify';
 import { randomUUID } from 'node:crypto';
-import { sql } from 'drizzle-orm';
-import { db } from '@/db';
-import { drops, dropVersions } from '@/db/schema';
 import { requireCompletedMember } from '@/middleware/auth';
 import { uploadLimit } from '@/middleware/rateLimit';
 import { isValidSlug } from '@/lib/slug';
 import { uploadFolderParts, UPLOAD_LIMITS, MultipartPart, detectEntryPath } from '@/services/upload';
 import { uploadZip } from '@/services/uploadZip';
 import { UploadError } from '@/services/uploadErrors';
-import { gcVersion } from '@/services/gc';
+import { commitDeployment, DeploymentCommitError } from '@/services/deployments';
 import { config } from '@/config';
 
 async function* adaptParts(iter: AsyncIterable<unknown>, log: (obj: Record<string, unknown>, msg?: string) => void): AsyncIterable<MultipartPart> {
@@ -80,48 +77,22 @@ export const uploadRoute: FastifyPluginAsync = async (app) => {
 
     const entryPath = detectEntryPath(result.files.map((f) => f.path));
 
-    let oldVersionId: string | null = null;
     try {
-      await db.transaction(async (tx) => {
-        await tx.execute(sql`SET CONSTRAINTS ALL DEFERRED`);
-        const inserted = await tx.execute<{ id: string; current_version: string | null }>(sql`
-          INSERT INTO drops (owner_id, name) VALUES (${user.id}, ${name})
-          ON CONFLICT (owner_id, name) DO NOTHING
-          RETURNING id, current_version
-        `);
-        let dropId: string;
-        const ins = inserted[0];
-        if (ins) {
-          dropId = ins.id;
-        } else {
-          const existing = await tx.execute<{ id: string; current_version: string | null }>(sql`
-            SELECT id, current_version FROM drops WHERE owner_id = ${user.id} AND name = ${name} FOR UPDATE
-          `);
-          const row = existing[0];
-          if (!row) throw new Error('drop row vanished');
-          dropId = row.id;
-          oldVersionId = row.current_version;
-        }
-        await tx.insert(dropVersions).values({
-          id: versionId,
-          dropId,
-          r2Prefix,
-          byteSize: result.totalBytes,
-          fileCount: result.fileCount,
-          entryPath,
-        });
-        await tx.update(drops).set({ currentVersion: versionId, updatedAt: new Date() }).where(sql`${drops.id} = ${dropId}`);
+      await commitDeployment({
+        ownerId: user.id,
+        name,
+        versionId,
+        r2Prefix,
+        result,
+        entryPath,
+      }, {
+        logger: req.log,
       });
     } catch (e) {
-      req.log.error({ err: e }, 'commit failed after upload');
-      return reply.code(500).send({ error: 'commit_failed' });
-    }
-
-    if (oldVersionId) {
-      const id = oldVersionId;
-      setImmediate(() => {
-        gcVersion(id).catch((err) => req.log.warn({ err, id }, 'async gc failed'));
-      });
+      if (e instanceof DeploymentCommitError) {
+        return reply.code(500).send({ error: 'commit_failed' });
+      }
+      throw e;
     }
 
     // redirect back to the app-side edit page; the drop's live URL is shown there.
