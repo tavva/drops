@@ -21,6 +21,10 @@ export interface ParsedDeployArguments {
 export function parseDeployArguments(argv: string[]): ParsedDeployArguments {
   const nameOccurrences = argv.filter((argument) => argument === '--name' || argument.startsWith('--name=')).length;
   if (nameOccurrences > 1) throw usage(`${USAGE}; provide --name exactly once`);
+  const instanceOccurrences = argv.filter(
+    (argument) => argument === '--instance' || argument.startsWith('--instance='),
+  ).length;
+  if (instanceOccurrences > 1) throw usage(`${USAGE}; provide --instance at most once`);
 
   let parsed;
   try {
@@ -53,6 +57,7 @@ export function parseDeployArguments(argv: string[]): ParsedDeployArguments {
 export interface RunDeployCommandOptions extends ParsedDeployArguments {
   cwd: string;
   onProgress: (uploadedBytes: number, totalBytes: number) => void;
+  onWarning: (message: string) => void;
 }
 
 export async function runDeployCommand(options: RunDeployCommandOptions, dependencies?: DeployDependencies) {
@@ -63,6 +68,7 @@ export async function runDeployCommand(options: RunDeployCommandOptions, depende
       name: options.name,
       instance: options.instance,
       onProgress: options.onProgress,
+      onWarning: options.onWarning,
     },
     dependencies,
   );

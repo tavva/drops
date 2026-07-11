@@ -34,9 +34,11 @@ export type CommandDispatcher = (
 ) => Promise<CommandResult>;
 
 export function installSignalHandlers(lifecycle: Pick<LifecycleRegistry, 'cleanup'>): void {
+  let shutdown: Promise<void> | undefined;
   const install = (signal: 'SIGINT' | 'SIGTERM', exitCode: number) => {
-    process.once(signal, () => {
-      void lifecycle.cleanup().finally(() => process.exit(exitCode));
+    process.on(signal, () => {
+      if (shutdown !== undefined) return;
+      shutdown = lifecycle.cleanup().finally(() => process.exit(exitCode));
     });
   };
   install('SIGINT', 130);
@@ -68,6 +70,7 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
           const percentage = totalBytes === 0 ? 100 : Math.min(100, Math.round((uploadedBytes / totalBytes) * 100));
           diagnostic(`Uploading ${percentage}% (${uploadedBytes}/${totalBytes} bytes)`);
         },
+        onWarning: diagnostic,
       },
       dependencies.deploy,
     );

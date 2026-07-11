@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 
@@ -71,6 +72,23 @@ describe('packageSource', () => {
     expect(await zipEntry(packaged.path, 'hello.txt')).toBe('hello');
     await packaged.cleanup();
     expect(await readFile(source, 'utf8')).toBe('hello');
+  });
+
+  it('produces byte-for-byte identical archives for identical inputs', async () => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    await mkdir(source);
+    await writeFile(join(source, 'b.txt'), 'bravo');
+    await writeFile(join(source, 'a.txt'), 'alpha');
+
+    const first = await packageSource(source);
+    const firstBytes = await readFile(first.path);
+    await first.cleanup();
+    const second = await packageSource(source);
+    const secondBytes = await readFile(second.path);
+
+    expect(secondBytes).toEqual(firstBytes);
+    await second.cleanup();
   });
 
   it('passes through an existing zip without modifying or deleting it and checks compressed size', async () => {
@@ -222,6 +240,86 @@ describe('packageSource', () => {
 
     expect(removed).toBe(true);
   });
+
+  it.each(['delete', 'replace', 'grow', 'symlink'] as const)(
+    'rejects and removes its temporary directory when a source is changed by %s before opening',
+    async (mutation) => {
+      const root = await temporaryDirectory();
+      const source = join(root, 'site');
+      const file = join(source, 'index.html');
+      const temporary = join(root, 'generated');
+      await mkdir(source);
+      await writeFile(file, 'original');
+
+      await expect(packageSource(source, {
+        createTemporaryDirectory: async () => {
+          await mkdir(temporary);
+          return temporary;
+        },
+        beforeOpenSources: async () => {
+          if (mutation === 'delete') await rm(file);
+          if (mutation === 'replace') {
+            await rm(file);
+            await writeFile(file, 'original');
+          }
+          if (mutation === 'grow') await writeFile(file, 'original plus more');
+          if (mutation === 'symlink') {
+            const target = join(root, 'target.html');
+            await writeFile(target, 'original');
+            await rm(file);
+            await symlink(target, file);
+          }
+        },
+      })).rejects.toMatchObject({ code: 'source_changed', exitCode: 2 });
+
+      await expect(stat(temporary)).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+  );
+
+  it.each(['source', 'output'] as const)('rejects an injected %s stream error and removes temporary files', async (kind) => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    const temporary = join(root, 'generated');
+    await mkdir(source);
+    await writeFile(join(source, 'index.html'), 'hello');
+
+    await expect(packageSource(source, {
+      createTemporaryDirectory: async () => {
+        await mkdir(temporary);
+        return temporary;
+      },
+      ...(kind === 'source' ? {
+        createSourceStream: () => Readable.from((async function* () { throw new Error('source stream failed'); })()),
+      } : {
+        createOutputStream: () => new Writable({
+          write(_chunk, _encoding, callback) { callback(new Error('output stream failed')); },
+        }),
+      }),
+    })).rejects.toThrow(`${kind} stream failed`);
+
+    await expect(stat(temporary)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('rejects and removes a generated archive whose compressed size exceeds 100 MB', async () => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    const temporary = join(root, 'generated');
+    await mkdir(source);
+    await writeFile(join(source, 'index.html'), 'hello');
+
+    await expect(packageSource(source, {
+      createTemporaryDirectory: async () => {
+        await mkdir(temporary);
+        return temporary;
+      },
+      writeArchive: async (_files, path) => {
+        await writeFile(path, '');
+        await truncate(path, 100 * 1024 * 1024 + 1);
+      },
+    })).rejects.toMatchObject({ code: 'total_size', exitCode: 2 });
+
+    await expect(stat(temporary)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
 });
 
 describe('import safety', () => {
@@ -275,5 +373,40 @@ describe.each([
 
     expect(exitCode).toBe(128 + signalNumber);
     await expect(stat(archivePath)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});
+
+describe.each([
+  ['same', ['SIGINT', 'SIGINT'] as const, 130],
+  ['mixed', ['SIGTERM', 'SIGINT'] as const, 143],
+] as const)('repeated %s process signals', (_kind, signals, expectedExitCode) => {
+  it('awaits exactly one delayed cleanup and exits using the first signal', async () => {
+    const root = await temporaryDirectory();
+    const marker = join(root, 'cleanup-marker');
+    const script = [
+      `import { createLifecycleRegistry } from ${JSON.stringify(new URL('../src/lifecycle.ts', import.meta.url).href)};`,
+      `import { installSignalHandlers } from ${JSON.stringify(new URL('../src/index.ts', import.meta.url).href)};`,
+      'const lifecycle = createLifecycleRegistry();',
+      `lifecycle.register(async () => { await (await import('node:fs/promises')).appendFile(${JSON.stringify(marker)}, 'start\\n'); await new Promise(resolve => setTimeout(resolve, 150)); await (await import('node:fs/promises')).appendFile(${JSON.stringify(marker)}, 'complete\\n'); });`,
+      'installSignalHandlers(lifecycle);',
+      "process.stdout.write('ready\\n');",
+      'setInterval(() => {}, 1000);',
+    ].join('\n');
+    const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', script], {
+      cwd: process.cwd(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    await new Promise<void>((resolve, reject) => {
+      child.once('error', reject);
+      child.stdout.once('data', () => resolve());
+    });
+
+    child.kill(signals[0]);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    child.kill(signals[1]);
+    const exitCode = await new Promise<number | null>((resolve) => child.once('exit', resolve));
+
+    expect(exitCode).toBe(expectedExitCode);
+    expect(await readFile(marker, 'utf8')).toBe('start\ncomplete\n');
   });
 });

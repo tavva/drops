@@ -13,12 +13,21 @@ import { packageSource, type PackagedSource, type PackageSourceOptions } from '.
 
 const DROP_SLUG = /^(?!.*--)[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/u;
 
+function warn(callback: DeployOptions['onWarning'], message: string): void {
+  try {
+    callback?.(message);
+  } catch {
+    // Diagnostics are best-effort and must not replace the deployment outcome.
+  }
+}
+
 export interface DeployOptions {
   cwd: string;
   path: string;
   name: string;
   instance?: string;
   onProgress?: (uploadedBytes: number, totalBytes: number) => void;
+  onWarning?: (message: string) => void;
 }
 
 export interface DeployApi {
@@ -74,11 +83,18 @@ export async function deploy(
   }
 
   await dependencies.api.discover(origin);
-  const packaged = await dependencies.packageSource(options.path, { registerCleanup: dependencies.registerCleanup });
+  const packaged = await dependencies.packageSource(options.path, {
+    registerCleanup: dependencies.registerCleanup,
+    onCleanupWarning: options.onWarning,
+  });
   let body: Readable | undefined;
+  let remoteAttempted = false;
+  let result: DropsDeploymentResult | undefined;
+  let failure: unknown;
   try {
     body = dependencies.createReadStream(packaged.path);
-    return await dependencies.api.deployZip({
+    remoteAttempted = true;
+    result = await dependencies.api.deployZip({
       origin,
       token,
       name: options.name,
@@ -86,11 +102,20 @@ export async function deploy(
       contentLength: packaged.byteSize,
       onProgress: options.onProgress,
     });
+  } catch (error) {
+    failure = error;
   } finally {
     if (body !== undefined) {
       if (!body.destroyed) body.destroy();
       await finished(body).catch(() => {});
     }
-    await packaged.cleanup();
+    try {
+      await packaged.cleanup();
+    } catch (cleanupError) {
+      warn(options.onWarning, 'Could not remove the temporary deployment archive');
+      if (!remoteAttempted && failure === undefined) failure = cleanupError;
+    }
   }
+  if (failure !== undefined) throw failure;
+  return result!;
 }

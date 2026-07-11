@@ -44,6 +44,7 @@ describe('parseDeployArguments', () => {
     [['one', 'two', '--name', 'sample'], 'exactly one source path'],
     [['dist'], '--name'],
     [['dist', '--name', 'one', '--name', 'two'], '--name'],
+    [['dist', '--name', 'one', '--instance', 'https://one.example.com', '--instance', 'https://two.example.com'], '--instance'],
   ])('rejects invalid deploy arguments %#', (argv, message) => {
     expect(() => parseDeployArguments(argv)).toThrow(expect.objectContaining({ exitCode: 2, message: expect.stringContaining(message) }));
   });
@@ -151,6 +152,42 @@ describe('deploy', () => {
     expect(setup.api.deployZip).not.toHaveBeenCalled();
     expect(setup.cleanup).toHaveBeenCalledOnce();
   });
+
+  it('preserves a successful remote result and warns when archive cleanup fails', async () => {
+    const onWarning = vi.fn();
+    const setup = dependencies({ resolveInstance: vi.fn(async () => 'https://drops.example.com') });
+    setup.cleanup.mockRejectedValue(new Error('secret cleanup detail'));
+
+    await expect(deploy({ cwd: '/repo', path: 'dist', name: 'sample-site', onWarning }, setup.deps))
+      .resolves.toEqual(result);
+
+    expect(onWarning).toHaveBeenCalledWith('Could not remove the temporary deployment archive');
+    expect(JSON.stringify(onWarning.mock.calls)).not.toContain('secret cleanup detail');
+  });
+
+  it('preserves a successful remote result when the cleanup warning writer also throws', async () => {
+    const setup = dependencies({ resolveInstance: vi.fn(async () => 'https://drops.example.com') });
+    setup.cleanup.mockRejectedValue(new Error('cleanup failed'));
+
+    await expect(deploy({
+      cwd: '/repo',
+      path: 'dist',
+      name: 'sample-site',
+      onWarning: () => { throw new Error('writer failed'); },
+    }, setup.deps)).resolves.toEqual(result);
+  });
+
+  it('preserves the API error and warns when archive cleanup also fails', async () => {
+    const onWarning = vi.fn();
+    const setup = dependencies({ resolveInstance: vi.fn(async () => 'https://drops.example.com') });
+    const apiError = new DropsCliError({ code: 'network_error', message: 'offline', exitCode: 5 });
+    setup.api.deployZip.mockRejectedValue(apiError);
+    setup.cleanup.mockRejectedValue(new Error('cleanup failed'));
+
+    await expect(deploy({ cwd: '/repo', path: 'dist', name: 'sample-site', onWarning }, setup.deps))
+      .rejects.toBe(apiError);
+    expect(onWarning).toHaveBeenCalledOnce();
+  });
 });
 
 describe('deploy CLI output', () => {
@@ -186,5 +223,22 @@ describe('deploy CLI output', () => {
     expect(captured.output().stdout).toBe(json ? `${JSON.stringify(result)}\n` : `${result.url}\n`);
     expect(captured.output().stderr).toContain('Uploading');
     expect(captured.output().stderr).not.toContain('drops_cli_secret');
+  });
+
+  it('keeps a cleanup warning on stderr while JSON stdout contains only the successful result', async () => {
+    const captured = capture();
+    const setup = dependencies({ resolveInstance: vi.fn(async () => 'https://drops.example.com') });
+    setup.cleanup.mockRejectedValue(new Error('cleanup failed'));
+
+    const exitCode = await runCli(
+      ['deploy', 'dist', '--name', 'sample-site', '--json'],
+      captured.runtime,
+      undefined,
+      { deploy: setup.deps },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(captured.output().stdout).toBe(`${JSON.stringify(result)}\n`);
+    expect(captured.output().stderr).toBe('Could not remove the temporary deployment archive\n');
   });
 });
