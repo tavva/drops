@@ -2,6 +2,7 @@
 // ABOUTME: on startup, then every hour.
 import { sweepOrphans } from './gc';
 import { deleteExpiredMagicTokens } from './magicLinkTokens';
+import { deleteExpiredCliAuthorizationCodes } from './cliAuth';
 
 export interface ScheduleOpts {
   intervalMs?: number;
@@ -15,6 +16,7 @@ export function startOrphanSweep(opts: ScheduleOpts = {}): () => void {
   const tick = () => {
     sweepOrphans().catch(log);
     deleteExpiredMagicTokens().catch(log);
+    deleteExpiredCliAuthorizationCodes().catch(log);
   };
   if (opts.runImmediately !== false) tick();
   const handle = setInterval(tick, interval);

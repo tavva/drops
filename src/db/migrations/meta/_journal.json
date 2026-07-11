@@ -43,6 +43,13 @@
       "when": 1782286760298,
       "tag": "0005_wise_the_renegades",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1783858961590,
+      "tag": "0006_slimy_payback",
+      "breakpoints": true
     }
   ]
 }
