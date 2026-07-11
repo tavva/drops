@@ -137,9 +137,10 @@ async function closeHttpServer(server: HttpServer | undefined): Promise<void> {
 }
 
 test('built executable handles safe local commands without injected dependencies', async () => {
-  // This layer runs dist/index.js exactly as published. It never calls login, so /usr/bin/open is
-  // untouched; auth/deploy perform only a missing-item lookup for a fresh exact loopback origin
-  // and never add, update, or delete a Keychain item. The injected journey below owns full login.
+  // This layer runs dist/index.js exactly as published. It never calls login or a command that
+  // reaches credential lookup: deploy failures stop at argument/name validation. Therefore neither
+  // absolute /usr/bin/open nor /usr/bin/security is launched. The injected journey below owns
+  // status, authenticated deploy, missing-auth deploy, and full browser login coverage.
   const temp = await mkdtemp(join(tmpdir(), 'drops-cli-bin-smoke-'));
   const tracker = new ChildProcessTracker();
   const bin = resolve('packages/cli/dist/index.js');
@@ -160,15 +161,31 @@ test('built executable handles safe local commands without injected dependencies
     expect(init.exitCode).toBe(0);
     expect(JSON.parse(await readFile(join(temp, '.drops.json'), 'utf8'))).toEqual({ instance: origin });
 
-    const status = await invoke(['auth', 'status', '--json']);
-    expect(status.exitCode).toBe(0);
-    expect(parseJson(status)).toMatchObject({ instance: origin, authenticated: false, user: null });
-
     await mkdir(join(temp, 'site'));
     await writeFile(join(temp, 'site', 'index.html'), '<h1>not uploaded</h1>\n');
-    const deploy = await invoke(['deploy', './site', '--name', 'missing-auth', '--json']);
-    expect(deploy.exitCode).toBe(3);
-    expect(parseJson(deploy)).toMatchObject({ error: { code: 'not_authenticated', instance: origin } });
+    const missingName = await invoke(['deploy', './site', '--json']);
+    expect(missingName.exitCode).toBe(2);
+    expect(parseJson(missingName)).toEqual({
+      error: {
+        code: 'usage_error',
+        message: 'Usage: drops deploy <path> --name <name> [--instance <origin>] [--json]; --name is required',
+        instance: null,
+        details: null,
+      },
+    });
+
+    const invalidName = await invoke(['deploy', './site', '--name', 'INVALID', '--json']);
+    expect(invalidName.exitCode).toBe(2);
+    expect(parseJson(invalidName)).toEqual({
+      error: {
+        code: 'invalid_name',
+        message: 'The drop name must be a valid slug',
+        instance: null,
+        details: { name: 'INVALID' },
+      },
+    });
+    expect(tracker.spawnedCommands).not.toContain('/usr/bin/security');
+    expect(tracker.spawnedCommands).not.toContain('/usr/bin/open');
   } finally {
     const cleanup = await Promise.allSettled([tracker.terminateAll()]);
     await rm(temp, { recursive: true, force: true });

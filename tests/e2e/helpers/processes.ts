@@ -28,6 +28,7 @@ async function waitForClose(child: ChildProcess, timeoutMs: number): Promise<boo
 
 export class ChildProcessTracker {
   private readonly children = new Set<ChildProcess>();
+  private readonly commands: string[] = [];
   private readonly terminateTimeoutMs: number;
   private readonly killTimeoutMs: number;
 
@@ -37,8 +38,10 @@ export class ChildProcessTracker {
   }
 
   get size(): number { return this.children.size; }
+  get spawnedCommands(): readonly string[] { return this.commands; }
 
   spawn(command: string, args: string[], options: SpawnOptions = {}): ChildProcess {
+    this.commands.push(command);
     return this.track(spawn(command, args, options));
   }
 

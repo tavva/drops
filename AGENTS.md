@@ -32,7 +32,7 @@ pnpm dev:seed            # prints a signed cookie to skip OAuth locally
 
 Integration tests need `docker compose up -d` (Postgres on `55432`, MinIO on `9000`/`9001`). `tests/helpers/global-setup.ts` rebuilds the test DB once per vitest run; `pool: 'forks'` with `fileParallelism: false` means tests run in a single worker in series — don't try to parallelise them across files. TEST_ENV in `tests/helpers/env.ts` overrides `process.env` for every worker.
 
-`pnpm test:e2e` builds the CLI before starting Playwright. CLI coverage is layered: one smoke test runs the built executable without injected modules through help, init, a read-only missing-credential status lookup, and a safely rejected deploy; the full login journey injects test-only file credential and browser-opening adapters so it cannot launch a real browser or create Keychain items. Child processes are bounded and force-reaped on failure. Only run `pnpm cli:test:keychain` when live Keychain mutation is explicitly intended.
+`pnpm test:e2e` builds the CLI before starting Playwright. CLI coverage is layered: one smoke test runs the built executable without injected modules through help, init, and deploy validation failures that stop before credential lookup; the full status/deploy/login journey injects test-only file credential and browser-opening adapters so it cannot touch Keychain or launch a real browser. Child processes are bounded and force-reaped on failure. Only run `pnpm cli:test:keychain` when live Keychain mutation is explicitly intended.
 
 ## Architecture
 
