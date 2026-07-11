@@ -91,7 +91,7 @@ describe('packageSource', () => {
     await second.cleanup();
   });
 
-  it('passes through an existing zip without modifying or deleting it and checks compressed size', async () => {
+  it('snapshots an existing zip without modifying or deleting it and checks compressed size', async () => {
     const root = await temporaryDirectory();
     const text = join(root, 'source.txt');
     const zip = join(root, 'source.zip');
@@ -101,10 +101,43 @@ describe('packageSource', () => {
 
     const packaged = await packageSource(zip);
 
-    expect(packaged).toMatchObject({ path: zip, byteSize: before.length });
+    expect(packaged.path).not.toBe(zip);
+    expect(packaged.byteSize).toBe(before.length);
+    expect(await readFile(packaged.path)).toEqual(before);
     await packaged.cleanup();
     expect(await readFile(zip)).toEqual(before);
+    await expect(stat(packaged.path)).rejects.toMatchObject({ code: 'ENOENT' });
   });
+
+  it.each(['delete', 'grow', 'replace', 'symlink'] as const)(
+    'uploads a private zip snapshot when the original is changed by %s after packaging',
+    async (mutation) => {
+      const root = await temporaryDirectory();
+      const text = join(root, 'source.txt');
+      const zip = join(root, 'source.zip');
+      await writeFile(text, 'hello');
+      await execFileAsync('zip', ['-q', '-j', zip, text]);
+      const original = await readFile(zip);
+      const packaged = await packageSource(zip);
+
+      if (mutation === 'delete') await rm(zip);
+      if (mutation === 'grow') await writeFile(zip, Buffer.concat([original, Buffer.from('changed')]));
+      if (mutation === 'replace') {
+        await rm(zip);
+        await writeFile(zip, 'replacement');
+      }
+      if (mutation === 'symlink') {
+        const replacement = join(root, 'replacement.zip');
+        await writeFile(replacement, 'replacement');
+        await rm(zip);
+        await symlink(replacement, zip);
+      }
+
+      expect(await readFile(packaged.path)).toEqual(original);
+      await packaged.cleanup();
+      await expect(stat(packaged.path)).rejects.toMatchObject({ code: 'ENOENT' });
+    },
+  );
 
   it.each(['missing', 'unsupported'])('rejects a %s source', async (kind) => {
     const root = await temporaryDirectory();
@@ -298,6 +331,71 @@ describe('packageSource', () => {
     })).rejects.toThrow(`${kind} stream failed`);
 
     await expect(stat(temporary)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('handles a short non-erroring source as an archive error and removes temporary files', async () => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    const temporary = join(root, 'generated');
+    await mkdir(source);
+    await writeFile(join(source, 'index.html'), 'declared bytes');
+
+    await expect(packageSource(source, {
+      createTemporaryDirectory: async () => {
+        await mkdir(temporary);
+        return temporary;
+      },
+      createSourceStream: () => Readable.from([Buffer.from('short')]),
+    })).rejects.toThrow('unexpected number of bytes');
+
+    await expect(stat(temporary)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(process.pid).toBeGreaterThan(0);
+  });
+
+  it('rejects a child directory swapped to an outside symlink before recursion', async () => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    const child = join(source, 'child');
+    const outside = join(root, 'outside');
+    const temporary = join(root, 'generated');
+    await mkdir(child, { recursive: true });
+    await mkdir(outside);
+    await writeFile(join(child, 'inside.txt'), 'inside');
+    await writeFile(join(outside, 'secret.txt'), 'secret');
+
+    await expect(packageSource(source, {
+      createTemporaryDirectory: async () => {
+        await mkdir(temporary);
+        return temporary;
+      },
+      beforeTraverseDirectory: async (path) => {
+        if (path !== child) return;
+        await rm(child, { recursive: true });
+        await symlink(outside, child);
+      },
+    })).rejects.toMatchObject({ code: expect.stringMatching(/^source_(?:changed|symlink)$/), exitCode: 2 });
+
+    await expect(stat(temporary)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('handles abort cleanup rejection and emits one safe warning without an unhandled rejection', async () => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    await mkdir(source);
+    await writeFile(join(source, 'index.html'), 'hello');
+    const controller = new AbortController();
+    const warning = vi.fn();
+    const packaged = await packageSource(source, {
+      signal: controller.signal,
+      removeTemporaryDirectory: async () => { throw new Error('private removal error'); },
+      onCleanupWarning: warning,
+    });
+
+    controller.abort();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(warning).toHaveBeenCalledWith('Could not remove the temporary deployment archive');
+    await expect(packaged.cleanup()).rejects.toThrow('private removal error');
   });
 
   it('rejects and removes a generated archive whose compressed size exceeds 100 MB', async () => {
