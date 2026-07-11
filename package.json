@@ -26,7 +26,10 @@
     "db:migrate": "tsx --env-file-if-exists=.env src/db/migrate.ts",
     "dev:seed": "tsx --env-file=.env scripts/dev-seed.ts",
     "dev:init-bucket": "tsx --env-file=.env scripts/dev-init-bucket.ts",
-    "dev:preview": "tsx scripts/preview.ts"
+    "dev:preview": "tsx scripts/preview.ts",
+    "cli:build": "pnpm --dir packages/cli build",
+    "cli:test": "pnpm --dir packages/cli test",
+    "cli:typecheck": "pnpm --dir packages/cli typecheck"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

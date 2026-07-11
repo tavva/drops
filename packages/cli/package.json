@@ -1,0 +1,25 @@
+{
+  "name": "@tavva/drops-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "drops": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "yazl": "^3.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/yazl": "^3.3.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.4"
+  }
+}
