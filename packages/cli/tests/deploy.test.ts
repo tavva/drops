@@ -62,8 +62,10 @@ describe('deploy', () => {
   });
 
   it('resolves repository instance, loads its exact credential, discovers, packages, and streams with progress', async () => {
+    const registerCleanup = vi.fn(() => () => {});
     const setup = dependencies({
       resolveInstance: vi.fn(async () => 'https://drops.example.com'),
+      registerCleanup,
     });
     const progress = vi.fn();
     setup.api.deployZip.mockImplementation(async (options) => {
@@ -81,7 +83,7 @@ describe('deploy', () => {
     expect(setup.deps.resolveInstance).toHaveBeenCalledWith({ cwd: '/repo/project', explicit: undefined });
     expect(setup.store.get).toHaveBeenCalledWith('https://drops.example.com');
     expect(setup.api.discover).toHaveBeenCalledWith('https://drops.example.com');
-    expect(setup.packageLocalSource).toHaveBeenCalledWith('dist');
+    expect(setup.packageLocalSource).toHaveBeenCalledWith('dist', { registerCleanup });
     expect(setup.api.deployZip).toHaveBeenCalledWith(expect.objectContaining({
       origin: 'https://drops.example.com',
       token: 'drops_cli_secret',
@@ -132,6 +134,22 @@ describe('deploy', () => {
     await expect(deploy({ cwd: '/repo', path: 'dist', name: 'sample-site' }, setup.deps)).rejects.toBe(error);
 
     expect(setup.cleanup).toHaveBeenCalledTimes(stage === 'discovery' ? 0 : 1);
+  });
+
+  it('cleans the generated archive when opening its upload stream throws', async () => {
+    const setup = dependencies({
+      resolveInstance: vi.fn(async () => 'https://drops.example.com'),
+      createReadStream: vi.fn(() => {
+        throw new Error('open failed');
+      }),
+    });
+
+    await expect(deploy({ cwd: '/repo', path: 'dist', name: 'sample-site' }, setup.deps)).rejects.toThrow(
+      'open failed',
+    );
+
+    expect(setup.api.deployZip).not.toHaveBeenCalled();
+    expect(setup.cleanup).toHaveBeenCalledOnce();
   });
 });
 

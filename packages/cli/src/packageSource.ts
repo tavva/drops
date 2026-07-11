@@ -9,6 +9,7 @@ import { finished } from 'node:stream/promises';
 import { ZipFile } from 'yazl';
 
 import { DropsCliError } from './errors.js';
+import type { LifecycleRegistrar } from './lifecycle.js';
 
 const MAX_TOTAL_BYTES = 100 * 1024 * 1024;
 const MAX_FILE_COUNT = 1000;
@@ -25,20 +26,9 @@ export interface PackagedSource {
 
 export interface PackageSourceOptions {
   signal?: AbortSignal;
-}
-
-type Cleanup = () => Promise<void>;
-const lifecycleCleanups = new Set<Cleanup>();
-
-export function registerLifecycleCleanup(cleanup: Cleanup): () => void {
-  lifecycleCleanups.add(cleanup);
-  return () => lifecycleCleanups.delete(cleanup);
-}
-
-export async function runLifecycleCleanups(): Promise<void> {
-  const cleanups = [...lifecycleCleanups];
-  lifecycleCleanups.clear();
-  await Promise.allSettled(cleanups.map((cleanup) => cleanup()));
+  registerCleanup?: LifecycleRegistrar;
+  removeTemporaryDirectory?: (path: string) => Promise<void>;
+  writeArchive?: (files: readonly SourceFile[], path: string, signal?: AbortSignal) => Promise<void>;
 }
 
 function sourceError(code: string, message: string, path: string): DropsCliError {
@@ -50,7 +40,7 @@ function ignored(path: string): boolean {
   return IGNORED_BASENAMES.has(segments.at(-1) ?? '') || segments.some((segment) => IGNORED_SEGMENTS.has(segment));
 }
 
-interface SourceFile {
+export interface SourceFile {
   diskPath: string;
   archivePath: string;
   byteSize: number;
@@ -110,32 +100,38 @@ async function collectDirectory(root: string): Promise<SourceFile[]> {
   return files.sort((left, right) => left.archivePath < right.archivePath ? -1 : left.archivePath > right.archivePath ? 1 : 0);
 }
 
-async function generateArchive(files: SourceFile[], signal?: AbortSignal): Promise<PackagedSource> {
+async function writeArchive(files: readonly SourceFile[], archivePath: string, signal?: AbortSignal): Promise<void> {
+  const zip = new ZipFile();
+  const output = createWriteStream(archivePath, { flags: 'wx' });
+  zip.outputStream.pipe(output);
+  for (const file of files) {
+    zip.addFile(file.diskPath, file.archivePath, { mtime: ZIP_MTIME, mode: 0o100644 });
+  }
+  zip.end();
+  await finished(output, { signal });
+}
+
+async function generateArchive(files: SourceFile[], options: PackageSourceOptions): Promise<PackagedSource> {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'drops-cli-'));
   const archivePath = join(temporaryDirectory, 'upload.zip');
-  let cleaned = false;
+  const removeTemporaryDirectory = options.removeTemporaryDirectory ?? ((path: string) => rm(path, { recursive: true, force: true }));
+  let cleanupPromise: Promise<void> | undefined;
   let unregister = () => {};
   const abortListener = () => void cleanup();
-  const cleanup = async () => {
-    if (cleaned) return;
-    cleaned = true;
-    unregister();
-    signal?.removeEventListener('abort', abortListener);
-    await rm(temporaryDirectory, { recursive: true, force: true });
+  const cleanup = (): Promise<void> => {
+    cleanupPromise ??= (async () => {
+      unregister();
+      options.signal?.removeEventListener('abort', abortListener);
+      await removeTemporaryDirectory(temporaryDirectory);
+    })();
+    return cleanupPromise;
   };
-  unregister = registerLifecycleCleanup(cleanup);
-  signal?.addEventListener('abort', abortListener, { once: true });
+  unregister = options.registerCleanup?.(cleanup) ?? unregister;
+  options.signal?.addEventListener('abort', abortListener, { once: true });
 
   try {
-    if (signal?.aborted) throw signal.reason ?? new Error('Packaging aborted');
-    const zip = new ZipFile();
-    const output = createWriteStream(archivePath, { flags: 'wx' });
-    zip.outputStream.pipe(output);
-    for (const file of files) {
-      zip.addFile(file.diskPath, file.archivePath, { mtime: ZIP_MTIME, mode: 0o100644 });
-    }
-    zip.end();
-    await finished(output, { signal });
+    if (options.signal?.aborted) throw options.signal.reason ?? new Error('Packaging aborted');
+    await (options.writeArchive ?? writeArchive)(files, archivePath, options.signal);
     const metadata = await lstat(archivePath);
     return { path: archivePath, byteSize: metadata.size, cleanup };
   } catch (error) {
@@ -158,8 +154,8 @@ export async function packageSource(path: string, options: PackageSourceOptions 
   if (metadata.isFile()) {
     const totals = { count: 0, bytes: 0 };
     checkFile(path, metadata.size, totals);
-    return generateArchive([{ diskPath: path, archivePath: basename(path), byteSize: metadata.size }], options.signal);
+    return generateArchive([{ diskPath: path, archivePath: basename(path), byteSize: metadata.size }], options);
   }
-  if (metadata.isDirectory()) return generateArchive(await collectDirectory(path), options.signal);
+  if (metadata.isDirectory()) return generateArchive(await collectDirectory(path), options);
   throw sourceError('source_unsupported', `Unsupported source: ${path}`, path);
 }

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { execFile } from 'node:child_process';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { packageSource } from '../src/packageSource.js';
 
@@ -155,6 +155,88 @@ describe('packageSource', () => {
     await expect(stat(packaged.path)).rejects.toMatchObject({ code: 'ENOENT' });
     await packaged.cleanup();
   });
+
+  it('returns one in-flight cleanup promise and waits for delayed deletion', async () => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    await mkdir(source);
+    await writeFile(join(source, 'index.html'), 'hello');
+    let releaseRemoval: (() => void) | undefined;
+    const removalGate = new Promise<void>((resolve) => { releaseRemoval = resolve; });
+    const removeTemporaryDirectory = vi.fn(async (path: string) => {
+      await removalGate;
+      await rm(path, { recursive: true, force: true });
+    });
+    const packaged = await packageSource(source, { removeTemporaryDirectory });
+
+    const first = packaged.cleanup();
+    const second = packaged.cleanup();
+    let settled = false;
+    void first.then(() => { settled = true; });
+    await Promise.resolve();
+
+    expect(first).toBe(second);
+    expect(settled).toBe(false);
+    releaseRemoval?.();
+    await first;
+    expect(removeTemporaryDirectory).toHaveBeenCalledOnce();
+    await expect(stat(packaged.path)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('awaits temporary deletion when archive generation fails', async () => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    await mkdir(source);
+    await writeFile(join(source, 'index.html'), 'hello');
+    const removed: string[] = [];
+
+    await expect(packageSource(source, {
+      writeArchive: async () => { throw new Error('archive failed'); },
+      removeTemporaryDirectory: async (path) => {
+        removed.push(path);
+        await rm(path, { recursive: true, force: true });
+      },
+    })).rejects.toThrow('archive failed');
+
+    expect(removed).toHaveLength(1);
+    await expect(stat(removed[0]!)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('awaits temporary deletion for a pre-aborted signal', async () => {
+    const root = await temporaryDirectory();
+    const source = join(root, 'site');
+    await mkdir(source);
+    await writeFile(join(source, 'index.html'), 'hello');
+    const controller = new AbortController();
+    controller.abort(new Error('already aborted'));
+    let removed = false;
+
+    await expect(packageSource(source, {
+      signal: controller.signal,
+      removeTemporaryDirectory: async (path) => {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        await rm(path, { recursive: true, force: true });
+        removed = true;
+      },
+    })).rejects.toThrow('already aborted');
+
+    expect(removed).toBe(true);
+  });
+});
+
+describe('import safety', () => {
+  it('does not install signal listeners when lifecycle modules are only imported', async () => {
+    const script = [
+      "const before = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];",
+      `await import(${JSON.stringify(new URL('../src/packageSource.ts', import.meta.url).href)});`,
+      `await import(${JSON.stringify(new URL('../src/index.ts', import.meta.url).href)});`,
+      "const after = [process.listenerCount('SIGINT'), process.listenerCount('SIGTERM')];",
+      'process.stdout.write(JSON.stringify({ before, after }));',
+    ].join('\n');
+    const { stdout } = await execFileAsync(process.execPath, ['--import', 'tsx', '--input-type=module', '--eval', script]);
+
+    expect(JSON.parse(stdout)).toEqual({ before: [0, 0], after: [0, 0] });
+  });
 });
 
 describe.each([
@@ -168,10 +250,12 @@ describe.each([
     await mkdir(source);
     await writeFile(join(source, 'index.html'), 'hello');
     const script = [
+      `import { createLifecycleRegistry } from ${JSON.stringify(new URL('../src/lifecycle.ts', import.meta.url).href)};`,
       `import { packageSource } from ${JSON.stringify(new URL('../src/packageSource.ts', import.meta.url).href)};`,
       `import { installSignalHandlers } from ${JSON.stringify(new URL('../src/index.ts', import.meta.url).href)};`,
-      'installSignalHandlers();',
-      `const packaged = await packageSource(${JSON.stringify(source)});`,
+      'const lifecycle = createLifecycleRegistry();',
+      'installSignalHandlers(lifecycle);',
+      `const packaged = await packageSource(${JSON.stringify(source)}, { registerCleanup: lifecycle.register });`,
       `await (await import('node:fs/promises')).writeFile(${JSON.stringify(marker)}, packaged.path);`,
       "process.stdout.write('ready\\n');",
       'setInterval(() => {}, 1000);',

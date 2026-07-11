@@ -6,10 +6,10 @@ import { parseArgs } from 'node:util';
 
 import { parseDeployArguments, runDeployCommand } from './commands/deploy.js';
 import { runInitCommand } from './commands/init.js';
-import type { DeployDependencies } from './deploy.js';
+import { createDeployDependencies, type DeployDependencies } from './deploy.js';
 import { DropsCliError } from './errors.js';
+import { createLifecycleRegistry, type LifecycleRegistry } from './lifecycle.js';
 import { createOutput, type TextWriter } from './output.js';
-import { runLifecycleCleanups } from './packageSource.js';
 
 export interface CliRuntime {
   cwd: string;
@@ -33,14 +33,10 @@ export type CommandDispatcher = (
   dependencies?: CliDependencies,
 ) => Promise<CommandResult>;
 
-let signalHandlersInstalled = false;
-
-export function installSignalHandlers(): void {
-  if (signalHandlersInstalled) return;
-  signalHandlersInstalled = true;
+export function installSignalHandlers(lifecycle: Pick<LifecycleRegistry, 'cleanup'>): void {
   const install = (signal: 'SIGINT' | 'SIGTERM', exitCode: number) => {
     process.once(signal, () => {
-      void runLifecycleCleanups().finally(() => process.exit(exitCode));
+      void lifecycle.cleanup().finally(() => process.exit(exitCode));
     });
   };
   install('SIGINT', 130);
@@ -128,10 +124,11 @@ export async function runCli(
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  installSignalHandlers();
+  const lifecycle = createLifecycleRegistry();
+  installSignalHandlers(lifecycle);
   process.exitCode = await runCli(process.argv.slice(2), {
     cwd: process.cwd(),
     stdout: process.stdout,
     stderr: process.stderr,
-  });
+  }, undefined, { deploy: createDeployDependencies(lifecycle.register) });
 }

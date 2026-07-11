@@ -8,7 +8,8 @@ import { DropsApiClient, type DropsDeploymentResult } from './api.js';
 import { DropsCliError } from './errors.js';
 import { resolveInstance } from './instance.js';
 import { MacOsKeychainStore, type CredentialStore } from './keychain.js';
-import { packageSource, type PackagedSource } from './packageSource.js';
+import type { LifecycleRegistrar } from './lifecycle.js';
+import { packageSource, type PackagedSource, type PackageSourceOptions } from './packageSource.js';
 
 const DROP_SLUG = /^(?!.*--)[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/u;
 
@@ -28,24 +29,26 @@ export interface DeployApi {
 export interface DeployDependencies {
   api: DeployApi;
   store: Pick<CredentialStore, 'get'>;
-  packageSource(path: string): Promise<PackagedSource>;
+  packageSource(path: string, options?: PackageSourceOptions): Promise<PackagedSource>;
   createReadStream(path: string): Readable;
   resolveInstance?: typeof resolveInstance;
+  registerCleanup?: LifecycleRegistrar;
 }
 
-function defaultDependencies(): DeployDependencies {
+export function createDeployDependencies(registerCleanup?: LifecycleRegistrar): DeployDependencies {
   return {
     api: new DropsApiClient(),
     store: new MacOsKeychainStore(),
     packageSource,
     createReadStream,
     resolveInstance,
+    registerCleanup,
   };
 }
 
 export async function deploy(
   options: DeployOptions,
-  dependencies: DeployDependencies = defaultDependencies(),
+  dependencies: DeployDependencies = createDeployDependencies(),
 ): Promise<DropsDeploymentResult> {
   if (!DROP_SLUG.test(options.name)) {
     throw new DropsCliError({
@@ -71,9 +74,10 @@ export async function deploy(
   }
 
   await dependencies.api.discover(origin);
-  const packaged = await dependencies.packageSource(options.path);
-  const body = dependencies.createReadStream(packaged.path);
+  const packaged = await dependencies.packageSource(options.path, { registerCleanup: dependencies.registerCleanup });
+  let body: Readable | undefined;
   try {
+    body = dependencies.createReadStream(packaged.path);
     return await dependencies.api.deployZip({
       origin,
       token,
@@ -83,8 +87,10 @@ export async function deploy(
       onProgress: options.onProgress,
     });
   } finally {
-    if (!body.destroyed) body.destroy();
-    await finished(body).catch(() => {});
+    if (body !== undefined) {
+      if (!body.destroyed) body.destroy();
+      await finished(body).catch(() => {});
+    }
     await packaged.cleanup();
   }
 }
