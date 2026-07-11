@@ -1,7 +1,8 @@
 // ABOUTME: Reads and writes portable repository-local Drops CLI instance configuration.
 // ABOUTME: Searches ancestors for .drops.json without storing credentials or machine-local defaults.
-import { readFile, writeFile } from 'node:fs/promises';
-import { dirname, join, parse, resolve } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { lstat, open, readFile, rename, rm, writeFile, type FileHandle } from 'node:fs/promises';
+import { basename, dirname, join, parse, resolve } from 'node:path';
 
 import { DropsCliError } from './errors.js';
 import { canonicaliseInstance } from './instance.js';
@@ -22,7 +23,7 @@ export async function readConfig(path: string): Promise<DropsConfig> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(await readFile(path, 'utf8'));
-  } catch (error) {
+  } catch {
     throw new DropsCliError({
       code: 'config_invalid',
       message: `Could not read a valid ${CONFIG_FILE_NAME} at ${path}`,
@@ -75,15 +76,61 @@ export interface InitialiseConfigOptions {
   force: boolean;
 }
 
+async function writeForcedConfig(path: string, contents: string): Promise<void> {
+  const temporaryPath = join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
+  let temporaryCreated = false;
+  let temporaryFile: FileHandle | undefined;
+
+  try {
+    temporaryFile = await open(temporaryPath, 'wx');
+    temporaryCreated = true;
+    await temporaryFile.writeFile(contents, { encoding: 'utf8' });
+    await temporaryFile.close();
+    temporaryFile = undefined;
+
+    try {
+      const existing = await lstat(path);
+      if (!existing.isFile() && !existing.isSymbolicLink()) {
+        throw new Error(`${path} is not a replaceable file type`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+
+    await rename(temporaryPath, path);
+    temporaryCreated = false;
+  } catch (error) {
+    if (temporaryFile !== undefined) {
+      try {
+        await temporaryFile.close();
+      } catch {
+        // Continue with path cleanup and preserve the original failure.
+      }
+    }
+    if (temporaryCreated) {
+      try {
+        await rm(temporaryPath, { force: true });
+      } catch {
+        // Preserve the original write failure; the generated path contains no credential material.
+      }
+    }
+    throw error;
+  }
+}
+
 export async function initialiseConfig(options: InitialiseConfigOptions): Promise<{ path: string; instance: string }> {
   const path = join(resolve(options.cwd), CONFIG_FILE_NAME);
   const instance = canonicaliseInstance(options.instance);
   const contents = `${JSON.stringify({ instance })}\n`;
 
   try {
-    await writeFile(path, contents, { encoding: 'utf8', flag: options.force ? 'w' : 'wx' });
+    if (options.force) {
+      await writeForcedConfig(path, contents);
+    } else {
+      await writeFile(path, contents, { encoding: 'utf8', flag: 'wx' });
+    }
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+    if (!options.force && (error as NodeJS.ErrnoException).code === 'EEXIST') {
       throw new DropsCliError({
         code: 'config_exists',
         message: `${path} already exists; pass --force to overwrite it`,

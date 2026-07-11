@@ -210,4 +210,24 @@ describe('runCli', () => {
     });
     expect(captured.stderr).toBe('');
   });
+
+  it.each([
+    ['not_authenticated', 3],
+    ['path_rejected', 4],
+    ['network_error', 5],
+  ] as const)('preserves the %s DropsCliError exit category', async (code, expectedExitCode) => {
+    const captured = capture();
+
+    const exitCode = await runCli(
+      ['--json'],
+      { cwd: process.cwd(), ...captured.io },
+      async () => {
+        throw new DropsCliError({ code, message: 'Expected command failure', exitCode: expectedExitCode });
+      },
+    );
+
+    expect(exitCode).toBe(expectedExitCode);
+    expect(JSON.parse(captured.stdout)).toMatchObject({ error: { code } });
+    expect(captured.stderr).toBe('');
+  });
 });

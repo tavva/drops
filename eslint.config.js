@@ -5,7 +5,7 @@ import tseslint from '@typescript-eslint/eslint-plugin';
 export default [
   {
     ignores: [
-      'dist/**',
+      '**/dist/**',
       'coverage/**',
       'test-results/**',
       'playwright-report/**',

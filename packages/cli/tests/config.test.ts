@@ -1,6 +1,6 @@
 // ABOUTME: Verifies portable .drops.json parsing and safe initialisation behavior.
 // ABOUTME: Ensures configuration contains only a canonical instance and is not overwritten implicitly.
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -73,5 +73,47 @@ describe('initialiseConfig', () => {
     await initialiseConfig({ cwd, instance: 'https://new.example.com', force: true });
 
     expect(await readFile(path, 'utf8')).toBe('{"instance":"https://new.example.com"}\n');
+  });
+
+  it('force replaces a config symlink without overwriting its target', async () => {
+    const cwd = await temporaryDirectory();
+    const target = join(cwd, 'shared-config.json');
+    const path = join(cwd, '.drops.json');
+    await writeFile(target, '{"instance":"https://shared.example.com"}\n');
+    await symlink(target, path);
+
+    await initialiseConfig({ cwd, instance: 'https://new.example.com', force: true });
+
+    expect((await lstat(path)).isSymbolicLink()).toBe(false);
+    expect(await readFile(path, 'utf8')).toBe('{"instance":"https://new.example.com"}\n');
+    expect(await readFile(target, 'utf8')).toBe('{"instance":"https://shared.example.com"}\n');
+  });
+
+  it('refuses a config symlink without force and leaves its target unchanged', async () => {
+    const cwd = await temporaryDirectory();
+    const target = join(cwd, 'shared-config.json');
+    const path = join(cwd, '.drops.json');
+    await writeFile(target, '{"instance":"https://shared.example.com"}\n');
+    await symlink(target, path);
+
+    await expect(initialiseConfig({ cwd, instance: 'https://new.example.com', force: false })).rejects.toMatchObject({
+      code: 'config_exists',
+      exitCode: 2,
+    });
+    expect((await lstat(path)).isSymbolicLink()).toBe(true);
+    expect(await readFile(target, 'utf8')).toBe('{"instance":"https://shared.example.com"}\n');
+  });
+
+  it('rejects an unsuitable existing config type and cleans up its temporary file', async () => {
+    const cwd = await temporaryDirectory();
+    const path = join(cwd, '.drops.json');
+    await mkdir(path);
+
+    await expect(initialiseConfig({ cwd, instance: 'https://new.example.com', force: true })).rejects.toMatchObject({
+      code: 'config_write_failed',
+      exitCode: 2,
+    });
+    expect((await lstat(path)).isDirectory()).toBe(true);
+    expect(await readdir(cwd)).toEqual(['.drops.json']);
   });
 });
