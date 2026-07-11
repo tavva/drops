@@ -19,7 +19,7 @@
     "start": "node dist/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
+    "test:e2e": "pnpm cli:build && playwright test",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "db:generate": "drizzle-kit generate",
@@ -29,7 +29,9 @@
     "dev:preview": "tsx scripts/preview.ts",
     "cli:build": "pnpm --dir packages/cli build",
     "cli:test": "pnpm --dir packages/cli test",
-    "cli:typecheck": "pnpm --dir packages/cli typecheck"
+    "cli:typecheck": "pnpm --dir packages/cli typecheck",
+    "cli:pack:check": "node packages/cli/scripts/verify-pack.mjs",
+    "cli:test:keychain": "pnpm --dir packages/cli test:keychain:live"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",

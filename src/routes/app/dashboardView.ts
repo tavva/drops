@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { listFolderTree, type FolderTree } from '@/services/folders';
 import { formatBytes } from '@/lib/format';
 import { dropOriginFor } from '@/lib/dropHost';
+import { listCliTokens } from '@/services/cliAuth';
 
 export interface DashboardRenderOptions {
   banner?: { kind: 'error' | 'info'; message: string } | null;
@@ -12,6 +13,15 @@ export interface DashboardRenderOptions {
 }
 
 export interface FolderPathEntry { id: string; path: string }
+
+const dateTimeFormatter = new Intl.DateTimeFormat('en-GB', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+function formatDateTime(value: Date): string {
+  return dateTimeFormatter.format(value);
+}
 
 export function buildFolderPathList(tree: FolderTree): FolderPathEntry[] {
   const out: FolderPathEntry[] = [];
@@ -35,16 +45,21 @@ export async function renderDashboard(
   const mineOnly = (req.query as { mine?: string }).mine === '1';
   const tree = await listFolderTree({ id: user.id, email: user.email }, { mineOnly });
   const folderPathList = buildFolderPathList(tree);
+  const cliTokens = (await listCliTokens(user.id))
+    .filter((token) => token.revokedAt === null)
+    .map((token) => ({ ...token, label: token.label.slice(0, 100) }));
   if (opts.statusCode) reply.code(opts.statusCode);
   return reply.view('dashboard.ejs', {
     user,
     tree,
     mineOnly,
     folderPathList,
+    cliTokens,
     banner: opts.banner ?? null,
     form: opts.form ?? null,
     csrfToken: req.csrfToken ?? '',
     formatBytes,
+    formatDateTime,
     dropOriginFor,
   });
 }

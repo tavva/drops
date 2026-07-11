@@ -15,6 +15,7 @@
     "build": "tsc",
     "prepack": "pnpm run build",
     "test": "vitest run",
+    "test:keychain:live": "DROPS_CLI_LIVE_KEYCHAIN=1 vitest run tests/keychain-live.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

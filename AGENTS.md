@@ -18,7 +18,12 @@ pnpm test                # vitest (unit + integration; needs docker compose up -
 pnpm test:watch
 pnpm test -- tests/unit/path.test.ts            # single file
 pnpm test -- -t "rejects parent traversal"      # by test name
-pnpm test:e2e            # playwright (happy path)
+pnpm test:e2e            # builds the CLI, then runs Playwright system tests
+pnpm cli:build            # build @tavva/drops-cli to packages/cli/dist
+pnpm cli:test             # CLI unit/integration tests with test credential stores
+pnpm cli:typecheck        # CLI-only TypeScript check
+pnpm cli:pack:check       # clean pack and verify the published executable shebang
+pnpm cli:test:keychain    # OPT-IN: touches the developer's live macOS Keychain
 pnpm db:generate         # drizzle-kit generate (after schema.ts changes)
 pnpm db:migrate          # apply migrations (also run by Docker CMD in prod)
 pnpm dev:init-bucket     # one-off: create the R2 bucket in MinIO
@@ -26,6 +31,8 @@ pnpm dev:seed            # prints a signed cookie to skip OAuth locally
 ```
 
 Integration tests need `docker compose up -d` (Postgres on `55432`, MinIO on `9000`/`9001`). `tests/helpers/global-setup.ts` rebuilds the test DB once per vitest run; `pool: 'forks'` with `fileParallelism: false` means tests run in a single worker in series — don't try to parallelise them across files. TEST_ENV in `tests/helpers/env.ts` overrides `process.env` for every worker.
+
+`pnpm test:e2e` builds the CLI before starting Playwright. The CLI system test spawns the built command with test-only file credential and browser-opening adapters; it must never touch the developer's Keychain or launch a real browser. Only run `pnpm cli:test:keychain` when live Keychain mutation is explicitly intended.
 
 ## Architecture
 
@@ -38,6 +45,8 @@ Integration tests need `docker compose up -d` (Postgres on `55432`, MinIO on `90
 **CSRF.** Tokens are bound to the session id (or the pending-login id pre-signup) via HMAC and checked alongside an exact-origin match. See `src/lib/csrf.ts` and `src/middleware/csrf.ts`.
 
 **Upload → R2 atomicity.** Each upload writes to a fresh `drops/<versionId>/` prefix, then a single `UPDATE drops SET current_version = ...` flips readers over. Readers never see a partial drop. `src/services/gc.ts` + `scheduler.ts` sweep orphaned prefixes (versions that never became current, or previous versions after replacement). `startOrphanSweep()` is kicked off from `src/index.ts` on boot.
+
+**Agent CLI.** `packages/cli` builds the separate `@tavva/drops-cli` executable. It discovers an exact app origin from `--instance` or a secret-free repository `.drops.json`, uses browser-approved PKCE login, and stores one bearer credential per exact origin in macOS Keychain. Server-side token hashes and revocation state live in `cli_tokens`; bearer API routes perform identity checks and stream zip deployments through the same atomic deployment service as browser uploads. Dashboard revocation is owner-scoped and CSRF-protected. The CLI never receives direct database or R2 credentials.
 
 **Path/zip hardening.** `src/lib/path.ts` NFC-normalises paths and rejects absolute roots, parent traversal, control chars, and leading dots. `src/services/uploadZip.ts` spools zips to disk and rejects symlink entries plus bomb-ratio entries before anything reaches R2. Don't relax these checks.
 

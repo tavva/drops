@@ -203,6 +203,27 @@ describe('DropsApiClient deployment', () => {
     expect(headers.get('content-length')).toBe('8');
   });
 
+  it('accepts the deployment API create response', async () => {
+    const result = {
+      instance: 'https://drops.example.com',
+      name: 'created-site',
+      url: 'https://alice--created-site.content.example.com',
+      versionId: 'version-created',
+      fileCount: 1,
+      byteSize: 4,
+      entryPath: 'index.html',
+    };
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(jsonResponse(result, 201));
+
+    await expect(new DropsApiClient(fetch).deployZip({
+      origin: 'https://drops.example.com',
+      token: 'secret-token',
+      name: 'created-site',
+      body: Buffer.from('test'),
+      contentLength: 4,
+    })).resolves.toEqual(result);
+  });
+
   it('supports a stream body with an upload progress seam', async () => {
     const observedChunks: Buffer[] = [];
     const fetch = vi.fn<FetchLike>().mockImplementation(async (_url, init) => {

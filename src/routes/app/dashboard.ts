@@ -5,6 +5,11 @@ import { renderDashboard } from '@/routes/app/dashboardView';
 
 export const dashboardRoute: FastifyPluginAsync = async (app) => {
   app.get('/app', { preHandler: requireCompletedMember }, async (req, reply) => {
-    return renderDashboard(req, reply);
+    const query = req.query as { cli_revoked?: string };
+    return renderDashboard(req, reply, {
+      banner: query.cli_revoked === '1'
+        ? { kind: 'info', message: 'CLI access revoked.' }
+        : null,
+    });
   });
 };

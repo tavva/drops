@@ -23,6 +23,7 @@ import { folderRoutes } from './routes/app/folders';
 import { viewerRoutes } from './routes/app/viewers';
 import { appStaticRoute } from './routes/app/static';
 import { rootRoute } from './routes/app/root';
+import { cliTokenRoutes } from './routes/app/cliTokens';
 import { cliDiscoveryRoute } from './routes/cli/discovery';
 import { cliAuthorizeRoutes } from './routes/cli/authorize';
 import { cliApiAuthRoutes } from './routes/cli/apiAuth';
@@ -49,6 +50,7 @@ await app.register(onAppHost(async (s) => {
   await s.register(magicRoutes);
   await s.register(logoutRoute);
   await s.register(dashboardRoute);
+  await s.register(cliTokenRoutes);
   await s.register(newDropRoute);
   await s.register(uploadRoute);
   await s.register(editDropRoute);

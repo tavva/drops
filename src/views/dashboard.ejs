@@ -89,6 +89,38 @@
           </div>
         <% } %>
       </div>
+
+      <section class="cli-access" aria-labelledby="cli-access-heading">
+        <div class="section-head">
+          <div>
+            <h2 id="cli-access-heading">CLI access</h2>
+            <p>Authorisations created by the Drops command-line tool.</p>
+          </div>
+        </div>
+        <div class="card cli-access-card">
+          <% if (cliTokens.length === 0) { %>
+            <p class="cli-access-empty">No active CLI authorisations.</p>
+          <% } else { %>
+            <ul class="cli-token-list">
+              <% cliTokens.forEach(function(token) { %>
+                <li>
+                  <div class="cli-token-details">
+                    <strong><%= token.label %></strong>
+                    <dl>
+                      <div><dt>Created</dt><dd><time datetime="<%= token.createdAt.toISOString() %>"><%= formatDateTime(token.createdAt) %></time></dd></div>
+                      <div><dt>Last used</dt><dd><% if (token.lastUsedAt) { %><time datetime="<%= token.lastUsedAt.toISOString() %>"><%= formatDateTime(token.lastUsedAt) %></time><% } else { %>Never<% } %></dd></div>
+                    </dl>
+                  </div>
+                  <form method="post" action="/app/cli/tokens/<%= token.id %>/revoke">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn danger" type="submit" aria-label="Revoke CLI access for <%= token.label %>">Revoke</button>
+                  </form>
+                </li>
+              <% }) %>
+            </ul>
+          <% } %>
+        </div>
+      </section>
     </div>
     <script type="module" src="/app/static/dashboard.js"></script>
   </body>

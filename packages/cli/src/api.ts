@@ -302,7 +302,7 @@ export class DropsApiClient {
         ...(options.onProgress || !(body instanceof Uint8Array) ? { duplex: 'half' as const } : {}),
       },
     );
-    if (response.status !== 200) {
+    if (response.status !== 200 && response.status !== 201) {
       await this.throwForResponse(response, options.origin, [options.token], true);
     }
     const result = await jsonOrNull(response);

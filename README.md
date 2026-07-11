@@ -14,6 +14,7 @@ Good for the things you don't want on your main app's domain: Storybook builds, 
 - [Features](#features)
 - [How it works](#how-it-works)
 - [Quick start (local)](#quick-start-local)
+- [Command-line uploads](#command-line-uploads)
 - [Tests](#tests)
 - [Architecture](#architecture)
 - [Environment](#environment)
@@ -84,11 +85,35 @@ CONTENT_ORIGIN=http://content.localtest.me:3000
 
 Paste the cookies `pnpm dev:seed` prints into each origin's cookie jar.
 
+## Command-line uploads
+
+Install the standalone CLI with pnpm:
+
+```bash
+pnpm add --global @tavva/drops-cli
+```
+
+Authenticate in your browser, configure the current repository, and deploy a built artefact:
+
+```bash
+drops login https://drops.example.com
+drops init --instance https://drops.example.com
+drops deploy ./dist --name preview --json
+drops auth status --json
+drops logout
+```
+
+`drops login` is currently macOS-only because credentials are stored in Keychain. The bearer token never belongs in the repository: `.drops.json` contains only the instance origin, is safe to commit, and is discovered from the current directory or its parents. Always provide an explicit drop name with `--name`; deploying the same name replaces that drop atomically.
+
+Credentials are independent and keyed by each instance's exact origin. A repository's `.drops.json` selects its default, while `--instance https://other.example.com` overrides that default for commands that accept it. Sign in separately to each instance.
+
+`drops logout` revokes the current credential. Active CLI authorisations also appear under **CLI access** on the dashboard, where they can be revoked remotely. A revoked credential is removed from the local Keychain the next time `drops auth status` sees it is invalid. The CLI uses the authenticated Drops API; it does not receive or connect directly to R2 or Postgres.
+
 ## Tests
 
 ```bash
 pnpm test        # unit + integration (needs docker compose up -d)
-pnpm test:e2e    # Playwright happy path
+pnpm test:e2e    # builds the CLI, then runs Playwright system tests
 pnpm typecheck
 pnpm lint
 ```
