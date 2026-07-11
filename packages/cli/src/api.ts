@@ -73,6 +73,8 @@ interface StructuredError {
   details: DropsCliErrorDetails;
 }
 
+const MAX_DISCOVERY_REDIRECTS = 3;
+
 const defaultFetch: FetchLike = (input, init) => fetch(input, init as RequestInit);
 
 function incompatible(origin: string): DropsCliError {
@@ -128,16 +130,41 @@ function isDeployment(value: unknown): value is DropsDeploymentResult {
   );
 }
 
+function redactString(value: string, secrets: string[]): string {
+  let redacted = value.replace(/Bearer\s+\S+/gi, 'Bearer [redacted]');
+  for (const secret of secrets) {
+    if (secret.length > 0) redacted = redacted.split(secret).join('[redacted]');
+  }
+  return redacted;
+}
+
+function sanitizeJsonValue(value: unknown, secrets: string[], depth = 0): unknown {
+  if (depth > 10) return '[redacted]';
+  if (value === null || typeof value === 'boolean') return value;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'string') return redactString(value, secrets);
+  if (Array.isArray(value)) return value.map((item) => sanitizeJsonValue(item, secrets, depth + 1));
+  if (!isRecord(value)) return null;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    result[redactString(key, secrets)] = sanitizeJsonValue(item, secrets, depth + 1);
+  }
+  return result;
+}
+
+function safeDetails(value: unknown, secrets: string[]): DropsCliErrorDetails {
+  if (value === null || !isRecord(value)) return null;
+  return sanitizeJsonValue(value, secrets) as Record<string, unknown>;
+}
+
 function parseStructuredError(value: unknown, secrets: string[]): StructuredError | null {
   if (!isRecord(value) || !isRecord(value.error)) return null;
   if (typeof value.error.code !== 'string' || !/^[a-z0-9_]+$/.test(value.error.code)) return null;
   if (typeof value.error.message !== 'string') return null;
 
-  let message = value.error.message.slice(0, 1_000).replace(/Bearer\s+\S+/gi, 'Bearer [redacted]');
-  for (const secret of secrets) {
-    if (secret.length > 0) message = message.split(secret).join('[redacted]');
-  }
-  return { code: value.error.code, message, details: null };
+  const message = redactString(value.error.message.slice(0, 1_000), secrets);
+  return { code: value.error.code, message, details: safeDetails(value.error.details ?? null, secrets) };
 }
 
 async function jsonOrNull(response: Response): Promise<unknown> {
@@ -177,11 +204,30 @@ export class DropsApiClient {
   constructor(private readonly fetchImpl: FetchLike = defaultFetch) {}
 
   async discover(origin: string): Promise<DropsDiscovery> {
-    const response = await this.request(origin, `${origin}/.well-known/drops`, {
-      method: 'GET',
-      redirect: 'manual',
-    });
-    if (response.status !== 200 || isRedirect(response)) throw incompatible(origin);
+    let url = `${origin}/.well-known/drops`;
+    const visited = new Set([url]);
+    let redirectCount = 0;
+    let response: Response;
+
+    while (true) {
+      response = await this.request(origin, url, { method: 'GET', redirect: 'manual' });
+      if (!isRedirect(response)) break;
+      if (redirectCount >= MAX_DISCOVERY_REDIRECTS) throw incompatible(origin);
+
+      const location = response.headers.get('location');
+      if (location === null) throw incompatible(origin);
+      let next: URL;
+      try {
+        next = new URL(location, url);
+      } catch {
+        throw incompatible(origin);
+      }
+      if (next.origin !== origin || visited.has(next.href)) throw incompatible(origin);
+      url = next.href;
+      visited.add(url);
+      redirectCount += 1;
+    }
+    if (response.status !== 200) throw incompatible(origin);
 
     const document = await jsonOrNull(response);
     if (

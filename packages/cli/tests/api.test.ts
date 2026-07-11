@@ -56,6 +56,49 @@ describe('DropsApiClient discovery', () => {
     });
     expect(fetch).toHaveBeenCalledTimes(1);
   });
+
+  it('follows a bounded same-origin discovery redirect with manual redirect handling', async () => {
+    const fetch = vi
+      .fn<FetchLike>()
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: '/v1/discovery' } }))
+      .mockResolvedValueOnce(
+        jsonResponse({ service: 'drops', apiVersion: 1, appOrigin: 'https://drops.example.com' }),
+      );
+
+    await expect(new DropsApiClient(fetch).discover('https://drops.example.com')).resolves.toEqual({
+      service: 'drops',
+      apiVersion: 1,
+      appOrigin: 'https://drops.example.com',
+    });
+    expect(fetch.mock.calls.map(([url, init]) => [url, init?.redirect])).toEqual([
+      ['https://drops.example.com/.well-known/drops', 'manual'],
+      ['https://drops.example.com/v1/discovery', 'manual'],
+    ]);
+  });
+
+  it('rejects missing, invalid, looping, and over-limit discovery redirects', async () => {
+    const missing = vi.fn<FetchLike>().mockResolvedValue(new Response(null, { status: 302 }));
+    const invalid = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(new Response(null, { status: 302, headers: { location: 'http://[' } }));
+    const looping = vi
+      .fn<FetchLike>()
+      .mockResolvedValue(new Response(null, { status: 302, headers: { location: '/.well-known/drops' } }));
+    const overLimit = vi.fn<FetchLike>().mockImplementation(async (url) => {
+      const current = new URL(String(url));
+      const count = Number(current.searchParams.get('hop') ?? '0');
+      return new Response(null, { status: 302, headers: { location: `?hop=${count + 1}` } });
+    });
+
+    for (const fetch of [missing, invalid, looping, overLimit]) {
+      await expect(new DropsApiClient(fetch).discover('https://drops.example.com')).rejects.toMatchObject({
+        code: 'instance_incompatible',
+        exitCode: 5,
+      });
+    }
+    expect(looping).toHaveBeenCalledTimes(1);
+    expect(overLimit).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe('DropsApiClient authentication', () => {
@@ -228,6 +271,69 @@ describe('DropsApiClient errors', () => {
       }),
     ).rejects.toMatchObject({ code: 'invalid_zip', exitCode: 4 });
   });
+
+  it('preserves safe structured error details while redacting nested secrets', async () => {
+    const token = 'drops_cli_nested_secret';
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(
+      jsonResponse(
+        {
+          error: {
+            code: 'total_size',
+            message: 'The upload is too large',
+            details: {
+              maximumBytes: 100,
+              receivedBytes: 120,
+              diagnostics: [`Bearer ${token}`, { credential: token }],
+            },
+          },
+        },
+        413,
+      ),
+    );
+
+    let thrown: unknown;
+    try {
+      await new DropsApiClient(fetch).deployZip({
+        origin: 'https://drops.example.com',
+        token,
+        name: 'sample',
+        body: Buffer.alloc(0),
+        contentLength: 0,
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toMatchObject({
+      code: 'total_size',
+      exitCode: 4,
+      details: {
+        maximumBytes: 100,
+        receivedBytes: 120,
+        diagnostics: ['Bearer [redacted]', { credential: '[redacted]' }],
+      },
+    });
+    expect(JSON.stringify(thrown)).not.toContain(token);
+  });
+
+  it.each(['unsafe', ['not', 'an', 'object'], 42])(
+    'drops non-object structured error details %j',
+    async (details) => {
+      const fetch = vi.fn<FetchLike>().mockResolvedValue(
+        jsonResponse({ error: { code: 'invalid_zip', message: 'The zip is invalid', details } }, 400),
+      );
+
+      await expect(
+        new DropsApiClient(fetch).deployZip({
+          origin: 'https://drops.example.com',
+          token: 'token',
+          name: 'sample',
+          body: Buffer.alloc(0),
+          contentLength: 0,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid_zip', details: null, exitCode: 4 });
+    },
+  );
 
   it('maps fetch failures to network_error without reusing their message', async () => {
     const token = 'drops_cli_secret';
