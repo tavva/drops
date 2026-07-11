@@ -32,6 +32,8 @@ export interface DeploymentDependencies {
   cleanup?: (prefix: string) => Promise<void>;
   logger?: DeploymentLogger;
   scheduleGc?: (versionId: string) => void;
+  beforeExistingLock?: () => Promise<void>;
+  afterExistingLock?: () => Promise<void>;
 }
 
 const silentLogger: DeploymentLogger = {
@@ -58,27 +60,44 @@ export async function commitDeployment(
   try {
     committed = await db.transaction(async (tx) => {
       await tx.execute(sql`SET CONSTRAINTS ALL DEFERRED`);
-      const inserted = await tx.execute<{ id: string; current_version: string | null }>(sql`
-        INSERT INTO drops (owner_id, name) VALUES (${input.ownerId}, ${input.name})
-        ON CONFLICT (owner_id, name) DO NOTHING
-        RETURNING id, current_version
+      const observed = await tx.execute<{ id: string }>(sql`
+        SELECT id FROM drops WHERE owner_id = ${input.ownerId} AND name = ${input.name}
       `);
-
-      const created = inserted[0] !== undefined;
       let dropId: string;
       let oldVersionId: string | null = null;
-      if (created) {
-        dropId = inserted[0]!.id;
-      } else {
+      let created = false;
+      if (observed[0]) {
+        await dependencies.beforeExistingLock?.();
         const existing = await tx.execute<{ id: string; current_version: string | null }>(sql`
           SELECT id, current_version FROM drops
-          WHERE owner_id = ${input.ownerId} AND name = ${input.name}
+          WHERE id = ${observed[0].id} AND owner_id = ${input.ownerId} AND name = ${input.name}
           FOR UPDATE
         `);
         const row = existing[0];
-        if (!row) throw new Error('drop row vanished');
+        if (!row) throw new Error('drop deleted during deployment');
         dropId = row.id;
         oldVersionId = row.current_version;
+        await dependencies.afterExistingLock?.();
+      } else {
+        const inserted = await tx.execute<{ id: string }>(sql`
+          INSERT INTO drops (owner_id, name) VALUES (${input.ownerId}, ${input.name})
+          ON CONFLICT (owner_id, name) DO NOTHING
+          RETURNING id
+        `);
+        if (inserted[0]) {
+          created = true;
+          dropId = inserted[0].id;
+        } else {
+          const existing = await tx.execute<{ id: string; current_version: string | null }>(sql`
+            SELECT id, current_version FROM drops
+            WHERE owner_id = ${input.ownerId} AND name = ${input.name}
+            FOR UPDATE
+          `);
+          const row = existing[0];
+          if (!row) throw new Error('drop row vanished');
+          dropId = row.id;
+          oldVersionId = row.current_version;
+        }
       }
 
       await tx.insert(dropVersions).values({

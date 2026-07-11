@@ -2,13 +2,12 @@
 // ABOUTME: Streams archives through uploadZip, then delegates the atomic version swap to deployments.
 import { randomUUID } from 'node:crypto';
 import { Transform, type Readable } from 'node:stream';
-import type { FastifyPluginAsync, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from 'fastify';
 import { config } from '@/config';
 import { dropOriginFor } from '@/lib/dropHost';
 import { deletePrefix } from '@/lib/r2';
 import { isValidSlug } from '@/lib/slug';
 import { requireCliToken } from '@/middleware/cliAuth';
-import { uploadLimit } from '@/middleware/rateLimit';
 import { commitDeployment, DeploymentCommitError } from '@/services/deployments';
 import { detectEntryPath, UPLOAD_LIMITS } from '@/services/upload';
 import { UploadError, type UploadErrorCode } from '@/services/uploadErrors';
@@ -88,8 +87,46 @@ interface CliDeployRouteOptions {
   commit?: typeof commitDeployment;
 }
 
+declare module 'fastify' {
+  interface FastifyRequest {
+    cliDeploymentLength?: number;
+  }
+}
+
+async function validateDeploymentMetadata(request: Parameters<typeof requireCliToken>[0], reply: FastifyReply) {
+  const { name } = request.params as { name: string };
+  if (!isValidSlug(name)) return apiError(reply, 400, 'invalid_name');
+
+  const mediaType = request.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase();
+  if (mediaType !== 'application/zip') return apiError(reply, 400, 'invalid_content_type');
+
+  const parsedLength = parseContentLength(request.headers['content-length']);
+  if (!parsedLength.ok) {
+    return apiError(reply, parsedLength.missing ? 411 : 400, parsedLength.missing ? 'length_required' : 'invalid_content_length');
+  }
+  if (parsedLength.value > UPLOAD_LIMITS.totalBytes) return apiError(reply, 413, 'payload_too_large');
+  request.cliDeploymentLength = parsedLength.value;
+}
+
+function rateLimitHook(check: ReturnType<FastifyInstance['createRateLimit']>) {
+  return async (request: Parameters<typeof requireCliToken>[0], reply: FastifyReply) => {
+    const result = await check(request);
+    if (!result.isAllowed && result.isExceeded) return apiError(reply, 429, 'rate_limited');
+  };
+}
+
 export const cliDeployRoute: FastifyPluginAsync<CliDeployRouteOptions> = async (app, options) => {
   const commit = options.commit ?? commitDeployment;
+  const unauthenticatedRateLimit = rateLimitHook(app.createRateLimit({
+    max: 60,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => request.ip,
+  }));
+  const tokenRateLimit = rateLimitHook(app.createRateLimit({
+    max: 10,
+    timeWindow: '1 minute',
+    keyGenerator: (request) => request.cliToken!.id,
+  }));
   app.addContentTypeParser('application/zip', (_request, payload, done) => {
     done(null, payload);
   });
@@ -107,20 +144,11 @@ export const cliDeployRoute: FastifyPluginAsync<CliDeployRouteOptions> = async (
 
   app.post('/api/v1/drops/:name/deployments', {
     bodyLimit: UPLOAD_LIMITS.totalBytes,
-    preHandler: requireCliToken,
-    config: { skipCsrf: true, ...uploadLimit },
+    onRequest: [unauthenticatedRateLimit, requireCliToken, tokenRateLimit, validateDeploymentMetadata],
+    config: { skipCsrf: true, rateLimit: false },
   }, async (request, reply) => {
     const { name } = request.params as { name: string };
-    if (!isValidSlug(name)) return apiError(reply, 400, 'invalid_name');
-
-    const mediaType = request.headers['content-type']?.split(';', 1)[0]?.trim().toLowerCase();
-    if (mediaType !== 'application/zip') return apiError(reply, 400, 'invalid_content_type');
-
-    const parsedLength = parseContentLength(request.headers['content-length']);
-    if (!parsedLength.ok) {
-      return apiError(reply, parsedLength.missing ? 411 : 400, parsedLength.missing ? 'length_required' : 'invalid_content_length');
-    }
-    if (parsedLength.value > UPLOAD_LIMITS.totalBytes) return apiError(reply, 413, 'payload_too_large');
+    const expectedLength = request.cliDeploymentLength!;
 
     const user = request.user!;
     const versionId = randomUUID();
@@ -134,7 +162,7 @@ export const cliDeployRoute: FastifyPluginAsync<CliDeployRouteOptions> = async (
       throw error;
     }
 
-    if (counted.received() !== parsedLength.value) {
+    if (counted.received() !== expectedLength) {
       await cleanupMismatch(r2Prefix, request);
       return apiError(reply, 400, 'content_length_mismatch');
     }

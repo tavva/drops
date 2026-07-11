@@ -2,7 +2,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { requireCompletedMember } from '@/middleware/auth';
 import { isValidSlug } from '@/lib/slug';
-import { findByOwnerAndName, listVersionsForDrop, deleteDrop } from '@/services/drops';
+import { deleteDropWithPrefixes } from '@/services/drops';
 import { deletePrefix } from '@/lib/r2';
 import { config } from '@/config';
 
@@ -11,16 +11,12 @@ export const deleteDropRoute: FastifyPluginAsync = async (app) => {
     const { name } = req.params as { name: string };
     if (!isValidSlug(name)) return reply.code(404).send('not_found');
     const user = req.user!;
-    const drop = await findByOwnerAndName(user.id, name);
-    if (!drop) return reply.code(404).send('not_found');
+    const deleted = await deleteDropWithPrefixes(user.id, name);
+    if (!deleted) return reply.code(404).send('not_found');
 
-    const versions = await listVersionsForDrop(drop.id);
-    const ok = await deleteDrop(drop.id, user.id);
-    if (!ok) return reply.code(404).send('not_found');
-
-    for (const v of versions) {
+    for (const prefix of deleted.prefixes) {
       setImmediate(() => {
-        deletePrefix(v.r2Prefix).catch((err) => req.log.warn({ err, prefix: v.r2Prefix }, 'delete prefix failed'));
+        deletePrefix(prefix).catch((err) => req.log.warn({ err, prefix }, 'delete prefix failed'));
       });
     }
     return reply.redirect(new URL('/app', config.APP_ORIGIN).toString(), 302);

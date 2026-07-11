@@ -10,6 +10,7 @@ import {
   listAllVisible,
   listAllVisibleUnpaged,
   deleteDrop,
+  deleteDropWithPrefixes,
   DropConflictError,
 } from '@/services/drops';
 
@@ -92,6 +93,25 @@ describe('drops service', () => {
     expect(await findByOwnerAndName(ownerA, 'site')).toBeNull();
     const versions = await db.select().from(dropVersions);
     expect(versions.length).toBe(0);
+  });
+
+  it('locks a named drop, inventories every version prefix, and deletes atomically', async () => {
+    const { dropId } = await createDropAndVersion(ownerA, 'site', {
+      r2Prefix: 'drops/v1/', byteSize: 1, fileCount: 1,
+    });
+    await db.insert(dropVersions).values({
+      dropId,
+      r2Prefix: 'drops/v2/',
+      byteSize: 2,
+      fileCount: 1,
+    });
+
+    const deleted = await deleteDropWithPrefixes(ownerA, 'site');
+
+    expect(deleted).toEqual({ dropId, prefixes: expect.arrayContaining(['drops/v1/', 'drops/v2/']) });
+    expect(deleted!.prefixes).toHaveLength(2);
+    expect(await findByOwnerAndName(ownerA, 'site')).toBeNull();
+    expect(await db.select().from(dropVersions)).toEqual([]);
   });
 
   it('summary includes viewMode (default authed)', async () => {

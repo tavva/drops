@@ -42,6 +42,7 @@ beforeAll(async () => {
   await resetBucket();
   appInstance = await buildServer();
   await appInstance.register(onAppHost(async (server) => {
+    await registerRateLimit(server);
     await registerCsrf(server);
     await server.register(cliDeployRoute);
     server.post('/api/v1/unrelated-json', { config: { skipCsrf: true } }, async (request) => request.body);
@@ -204,6 +205,7 @@ describe('POST /api/v1/drops/:name/deployments', () => {
 
     const failingApp = await buildServer();
     await failingApp.register(onAppHost(async (server) => {
+      await registerRateLimit(server);
       await registerCsrf(server);
       await server.register(cliDeployRoute, {
         commit: (input, dependencies) => commitDeployment({ ...input, versionId: 'forced-db-failure' }, dependencies),
@@ -289,6 +291,138 @@ describe('POST /api/v1/drops/:name/deployments', () => {
       expect(response!.json()).toEqual({
         error: { code: 'rate_limited', message: expect.any(String), details: null },
       });
+    } finally {
+      await limitedApp.close();
+    }
+  });
+
+  it('authenticates and rejects content metadata before a recognised body parser reads bytes', async () => {
+    let parserCalls = 0;
+    const lifecycleApp = await buildServer();
+    await lifecycleApp.register(onAppHost(async (server) => {
+      await registerRateLimit(server);
+      server.removeContentTypeParser('application/json');
+      server.addContentTypeParser('application/json', { parseAs: 'buffer' }, (_request, _body, done) => {
+        parserCalls += 1;
+        done(new Error('JSON parser must not run'));
+      });
+      await registerCsrf(server);
+      await server.register(cliDeployRoute);
+    }));
+    try {
+      const body = Buffer.from(`{"unfinished":"${'x'.repeat(1024 * 1024)}`);
+      const response = await lifecycleApp.inject({
+        method: 'POST',
+        url: '/api/v1/drops/site/deployments',
+        headers: {
+          host: 'drops.localtest.me',
+          'content-type': 'application/json',
+          'content-length': String(body.length),
+          'x-forwarded-for': '192.0.2.20',
+        },
+        payload: body,
+      });
+      expect(response.statusCode).toBe(401);
+      expect(response.json()).toMatchObject({ error: { code: 'not_authenticated' } });
+      expect(parserCalls).toBe(0);
+      expect(await findByOwnerAndName(ownerId, 'site')).toBeNull();
+      expect(await listPrefix('drops/')).toEqual([]);
+
+      const wrongType = await lifecycleApp.inject({
+        method: 'POST',
+        url: '/api/v1/drops/site/deployments',
+        headers: {
+          host: 'drops.localtest.me',
+          authorization: `Bearer ${rawToken}`,
+          'content-type': 'application/json',
+          'content-length': String(body.length),
+          'x-forwarded-for': '192.0.2.21',
+        },
+        payload: body,
+      });
+      expect(wrongType.statusCode).toBe(400);
+      expect(wrongType.json()).toMatchObject({ error: { code: 'invalid_content_type', details: null } });
+      expect(parserCalls).toBe(0);
+
+      const invalidName = await lifecycleApp.inject({
+        method: 'POST',
+        url: '/api/v1/drops/BAD_NAME/deployments',
+        headers: {
+          host: 'drops.localtest.me',
+          authorization: `Bearer ${rawToken}`,
+          'content-type': 'application/json',
+          'content-length': String(body.length),
+          'x-forwarded-for': '192.0.2.22',
+        },
+        payload: body,
+      });
+      expect(invalidName.statusCode).toBe(400);
+      expect(invalidName.json()).toMatchObject({ error: { code: 'invalid_name', details: null } });
+      expect(parserCalls).toBe(0);
+    } finally {
+      await lifecycleApp.close();
+    }
+  });
+
+  it('rate-limits a validated token even when drops_session cookies vary', async () => {
+    const limitedApp = await buildServer();
+    await limitedApp.register(onAppHost(async (server) => {
+      await registerRateLimit(server);
+      await registerCsrf(server);
+      await server.register(cliDeployRoute);
+    }));
+    try {
+      const invalidZip = Buffer.from('not a zip');
+      let response: Awaited<ReturnType<typeof limitedApp.inject>> | undefined;
+      for (let index = 0; index < 11; index++) {
+        response = await limitedApp.inject({
+          method: 'POST',
+          url: '/api/v1/drops/site/deployments',
+          headers: {
+            host: 'drops.localtest.me',
+            authorization: `Bearer ${rawToken}`,
+            cookie: `drops_session=rotating-${index}`,
+            'content-type': 'application/zip',
+            'content-length': String(invalidZip.length),
+            'x-forwarded-for': '192.0.2.30',
+          },
+          payload: invalidZip,
+        });
+      }
+      expect(response!.statusCode).toBe(429);
+      expect(response!.json()).toMatchObject({ error: { code: 'rate_limited', details: null } });
+    } finally {
+      await limitedApp.close();
+    }
+  });
+
+  it('rate-limits invalid credentials by IP without using bearer or cookie material as keys', async () => {
+    const limitedApp = await buildServer();
+    await limitedApp.register(onAppHost(async (server) => {
+      await registerRateLimit(server);
+      await registerCsrf(server);
+      await server.register(cliDeployRoute);
+    }));
+    try {
+      const invalidZip = Buffer.from('not a zip');
+      let response: Awaited<ReturnType<typeof limitedApp.inject>> | undefined;
+      for (let index = 0; index < 61; index++) {
+        response = await limitedApp.inject({
+          method: 'POST',
+          url: '/api/v1/drops/site/deployments',
+          headers: {
+            host: 'drops.localtest.me',
+            authorization: `Bearer invalid-${index}`,
+            cookie: `drops_session=rotating-${index}`,
+            'content-type': 'application/zip',
+            'content-length': String(invalidZip.length),
+            'x-forwarded-for': '192.0.2.40',
+          },
+          payload: invalidZip,
+        });
+      }
+      expect(response!.statusCode).toBe(429);
+      expect(response!.json()).toMatchObject({ error: { code: 'rate_limited', details: null } });
     } finally {
       await limitedApp.close();
     }

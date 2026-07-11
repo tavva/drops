@@ -211,6 +211,32 @@ export async function deleteDrop(dropId: string, ownerId: string): Promise<boole
   return rows.length > 0;
 }
 
+export async function deleteDropWithPrefixes(
+  ownerId: string,
+  name: string,
+  dependencies: {
+    beforeLock?: () => Promise<void>;
+    afterLock?: () => Promise<void>;
+  } = {},
+): Promise<{ dropId: string; prefixes: string[] } | null> {
+  return db.transaction(async (tx) => {
+    await dependencies.beforeLock?.();
+    const [drop] = await tx.execute<{ id: string }>(sql`
+      SELECT id FROM drops
+      WHERE owner_id = ${ownerId} AND name = ${name}
+      FOR UPDATE
+    `);
+    if (!drop) return null;
+    await dependencies.afterLock?.();
+
+    const versions = await tx.select({ r2Prefix: dropVersions.r2Prefix })
+      .from(dropVersions)
+      .where(eq(dropVersions.dropId, drop.id));
+    await tx.delete(drops).where(and(eq(drops.id, drop.id), eq(drops.ownerId, ownerId)));
+    return { dropId: drop.id, prefixes: versions.map((version) => version.r2Prefix) };
+  });
+}
+
 export async function listVersionsForDrop(dropId: string) {
   return db.select().from(dropVersions).where(eq(dropVersions.dropId, dropId));
 }
