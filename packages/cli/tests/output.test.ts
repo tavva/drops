@@ -159,7 +159,7 @@ describe('runCli', () => {
     expect(await readFile(path, 'utf8')).toBe('{"instance":"https://drops.example.com"}\n');
   });
 
-  it('returns a clear JSON usage error for commands not implemented yet', async () => {
+  it('returns a clear JSON usage error when deploy is missing its required path and name', async () => {
     const captured = capture();
 
     const exitCode = await runCli(['deploy', '--json'], { cwd: process.cwd(), ...captured.io });
@@ -167,8 +167,8 @@ describe('runCli', () => {
     expect(exitCode).toBe(2);
     expect(JSON.parse(captured.stdout)).toEqual({
       error: {
-        code: 'command_not_implemented',
-        message: 'Command deploy is not implemented yet',
+        code: 'usage_error',
+        message: 'Usage: drops deploy <path> --name <name> [--instance <origin>] [--json]',
         instance: null,
         details: null,
       },
