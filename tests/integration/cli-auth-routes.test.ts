@@ -1,6 +1,7 @@
 // ABOUTME: Integration coverage for CLI discovery, browser approval, token exchange, identity, and revocation.
 // ABOUTME: Verifies app-host isolation, browser CSRF boundaries, PKCE failures, and bearer-only API access.
 import { createHash } from 'node:crypto';
+import { Writable } from 'node:stream';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { db } from '@/db';
@@ -12,7 +13,7 @@ import { registerRateLimit } from '@/middleware/rateLimit';
 import { registerAppSecurity } from '@/middleware/security';
 import { cliDiscoveryRoute } from '@/routes/cli/discovery';
 import { cliAuthorizeRoutes } from '@/routes/cli/authorize';
-import { cliApiAuthRoutes } from '@/routes/cli/apiAuth';
+import { cliApiAuthErrorHandler, cliApiAuthRoutes } from '@/routes/cli/apiAuth';
 import { loginRoute } from '@/routes/auth/login';
 import { chooseUsernameRoute } from '@/routes/auth/chooseUsername';
 import { createSession } from '@/services/sessions';
@@ -291,6 +292,73 @@ describe('CLI auth API', () => {
     expect(response.body).not.toContain(secret);
   });
 
+  it('maps unsupported media types to a secret-safe invalid_request response', async () => {
+    const secret = 'SECRET_XML_SENTINEL';
+    const response = await app.inject({
+      method: 'POST', url: '/api/v1/auth/token',
+      headers: { host: 'drops.localtest.me', 'content-type': 'application/xml', 'x-forwarded-for': '198.51.100.13' },
+      payload: `<code>${secret}</code>`,
+    });
+    expect(response.statusCode).toBe(400);
+    expect(response.headers['content-type']).toContain('application/json');
+    expect(response.headers['cache-control']).toBe('no-store');
+    expect(response.json()).toEqual({
+      error: { code: 'invalid_request', message: 'The token request is invalid', details: null },
+    });
+    expect(response.body).not.toContain(secret);
+  });
+
+  it('logs unexpected errors with only error and request-id context', async () => {
+    const logLines: Record<string, unknown>[] = [];
+    const sink = new Writable({
+      write(chunk: Buffer, _encoding, callback) {
+        for (const line of chunk.toString().split('\n').filter(Boolean)) {
+          logLines.push(JSON.parse(line) as Record<string, unknown>);
+        }
+        callback();
+      },
+    });
+    const unexpectedApp = await buildServer({ loggerStream: sink });
+    await unexpectedApp.register(onAppHost(async (scoped) => {
+      scoped.setErrorHandler(cliApiAuthErrorHandler);
+      scoped.post('/api/v1/test-cli-error', async () => { throw new Error('forced CLI auth failure'); });
+    }));
+
+    const bodySecret = 'SECRET_BODY_SENTINEL';
+    const headerSecret = 'SECRET_HEADER_SENTINEL';
+    try {
+      const response = await unexpectedApp.inject({
+        method: 'POST', url: '/api/v1/test-cli-error',
+        headers: {
+          host: 'drops.localtest.me',
+          'content-type': 'application/json',
+          'x-secret-test-header': headerSecret,
+        },
+        payload: {
+          code: 'c'.repeat(43), verifier: 'v'.repeat(64), redirectUri, label: bodySecret,
+        },
+      });
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({
+        error: { code: 'internal_error', message: 'An unexpected error occurred', details: null },
+      });
+
+      const errorLog = logLines.find((line) => line.msg === 'CLI auth API request failed');
+      expect(errorLog).toMatchObject({
+        level: 50,
+        request_id: expect.any(String),
+        err: { type: 'Error', message: 'forced CLI auth failure' },
+      });
+      expect(errorLog).not.toHaveProperty('req');
+      expect(errorLog).not.toHaveProperty('headers');
+      expect(errorLog).not.toHaveProperty('body');
+      expect(JSON.stringify(errorLog)).not.toContain(bodySecret);
+      expect(JSON.stringify(errorLog)).not.toContain(headerSecret);
+    } finally {
+      await unexpectedApp.close();
+    }
+  });
+
   it('rate-limits token exchange to 20 requests per minute', async () => {
     let response;
     for (let attempt = 0; attempt < 21; attempt += 1) {
@@ -303,6 +371,9 @@ describe('CLI auth API', () => {
     expect(response!.statusCode).toBe(429);
     expect(response!.headers['content-type']).toContain('application/json');
     expect(response!.headers['cache-control']).toBe('no-store');
+    expect(response!.json()).toEqual({
+      error: { code: 'rate_limited', message: 'Too many token requests', details: null },
+    });
   });
 
   it('rejects a form-encoded token exchange even when every field is otherwise valid', async () => {

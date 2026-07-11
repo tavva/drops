@@ -1,6 +1,6 @@
 // ABOUTME: Provides the bearer-only CLI token exchange, identity, and self-revocation API.
 // ABOUTME: Token exchange and deletion skip browser CSRF because neither uses cookie authentication.
-import type { FastifyPluginAsync, FastifyReply } from 'fastify';
+import type { FastifyInstance, FastifyPluginAsync, FastifyReply } from 'fastify';
 import { requireCliToken } from '@/middleware/cliAuth';
 import { CliAuthorizationRequestError, validateCliRedirectUri } from '@/routes/cli/authorize';
 import { tightAuthLimit } from '@/middleware/rateLimit';
@@ -53,31 +53,35 @@ function validateTokenRequest(body: unknown): TokenRequest | null {
   };
 }
 
+export const cliApiAuthErrorHandler: Parameters<FastifyInstance['setErrorHandler']>[0] = (error, req, reply) => {
+  const statusCode = error && typeof error === 'object' && 'statusCode' in error
+    ? error.statusCode
+    : undefined;
+  if (statusCode === 413) {
+    return reply.code(413).send({
+      error: { code: 'payload_too_large', message: 'The token request is too large', details: null },
+    });
+  }
+  if (statusCode === 400 || statusCode === 415) return apiError(reply, 'invalid_request');
+  if (statusCode === 429) {
+    return reply.code(429).send({
+      error: { code: 'rate_limited', message: 'Too many token requests', details: null },
+    });
+  }
+  const loggedError = error instanceof Error ? error : new Error('Unknown CLI auth API error');
+  req.log.error({ err: loggedError, request_id: req.id }, 'CLI auth API request failed');
+  return reply.code(500).send({
+    error: { code: 'internal_error', message: 'An unexpected error occurred', details: null },
+  });
+};
+
 export const cliApiAuthRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('onSend', async (req, reply, payload) => {
     if (req.routeOptions.url === '/api/v1/auth/token') reply.header('cache-control', 'no-store');
     return payload;
   });
 
-  app.setErrorHandler((error, _req, reply) => {
-    const statusCode = error && typeof error === 'object' && 'statusCode' in error
-      ? error.statusCode
-      : undefined;
-    if (statusCode === 413) {
-      return reply.code(413).send({
-        error: { code: 'payload_too_large', message: 'The token request is too large', details: null },
-      });
-    }
-    if (statusCode === 400) return apiError(reply, 'invalid_request');
-    if (statusCode === 429) {
-      return reply.code(429).send({
-        error: { code: 'rate_limited', message: 'Too many token requests', details: null },
-      });
-    }
-    return reply.code(500).send({
-      error: { code: 'internal_error', message: 'An unexpected error occurred', details: null },
-    });
-  });
+  app.setErrorHandler(cliApiAuthErrorHandler);
 
   app.post('/api/v1/auth/token', {
     bodyLimit: 8 * 1024,
