@@ -41,7 +41,7 @@ function asCompletedMember(row: typeof users.$inferSelect | undefined): Complete
 }
 
 function validateLabel(label: string): void {
-  if (label.trim().length === 0 || label.length > 100 || /[\u0000-\u001f\u007f]/u.test(label)) {
+  if (label.trim().length === 0 || label.length > 100 || /\p{Cc}/u.test(label)) {
     throw new CliAuthError('invalid_label');
   }
 }

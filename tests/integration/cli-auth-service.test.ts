@@ -126,7 +126,7 @@ describe('CLI token lifecycle', () => {
     expect(first.user).toMatchObject({ id: memberId, username: 'member', kind: 'member' });
   });
 
-  it.each(['', ' '.repeat(3), 'x'.repeat(101), 'bad\nlabel', 'bad\u0000label'])(
+  it.each(['', ' '.repeat(3), 'x'.repeat(101), 'bad\nlabel', 'bad\u0000label', 'bad\u0085label'])(
     'rejects invalid label %j without consuming the code',
     async (label) => {
       const issued = await issueCliAuthorizationCode({ userId: memberId, redirectUri, codeChallenge: challenge });

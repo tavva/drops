@@ -33,7 +33,7 @@ export async function requireCliToken(request: FastifyRequest, reply: FastifyRep
   if (authorizationHeaderCount(request) !== 1 || typeof authorization !== 'string') {
     return unauthorized(reply);
   }
-  const match = /^Bearer ([^\s,]+)$/u.exec(authorization);
+  const match = /^Bearer ([^\s,]+)$/iu.exec(authorization);
   if (!match) return unauthorized(reply);
 
   const found = await lookupCliToken(match[1]!);

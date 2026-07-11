@@ -106,6 +106,14 @@ describe('requireCliToken', () => {
     expectJson401(await request(`Bearer ${revoked.raw}`));
   });
 
+  it.each(['bearer', 'bEaReR'])('accepts the case-insensitive HTTP auth scheme %s', async (scheme) => {
+    const user = await createUser();
+    const token = await createToken(user.id);
+    const response = await request(`${scheme} ${token.raw}`);
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ tokenId: token.id, user: { id: user.id } });
+  });
+
   it('rejects viewer and incomplete-member owners', async () => {
     const viewer = await createUser('viewer', null);
     const incomplete = await createUser('member', null);
