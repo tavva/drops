@@ -3,6 +3,7 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import type { Socket } from 'node:net';
 import { hostname as osHostname } from 'node:os';
 
 import {
@@ -20,6 +21,7 @@ const LOOPBACK_HOST = '127.0.0.1';
 const MIN_DYNAMIC_PORT = 49_152;
 const MAX_DYNAMIC_PORT = 65_535;
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1_000;
+const RESPONSE_SETTLE_TIMEOUT_MS = 250;
 const PORT_ATTEMPTS = 32;
 
 export interface PkceValues {
@@ -128,9 +130,14 @@ export function buildAuthorizeUrl(origin: string, options: AuthorizeUrlOptions):
 }
 
 export function createDeviceLabel(hostname: () => string): string {
-  const cleanHostname = hostname().replace(/\p{Cc}/gu, '');
+  const cleanHostname = Array.from(hostname().replace(/\p{Cc}/gu, ''))
+    .filter((character) => {
+      const codePoint = character.codePointAt(0)!;
+      return codePoint < 0xd800 || codePoint > 0xdfff;
+    })
+    .join('');
   const suffix = cleanHostname.length === 0 ? 'unknown host' : cleanHostname;
-  return `Drops CLI on ${suffix}`.slice(0, 100);
+  return Array.from(`Drops CLI on ${suffix}`).slice(0, 100).join('');
 }
 
 export const openMacOsBrowser = (
@@ -175,11 +182,6 @@ async function listenOnCandidate(server: Server, port: number): Promise<boolean>
   });
 }
 
-async function closeServer(server: Server): Promise<void> {
-  if (!server.listening) return;
-  await new Promise<void>((resolve) => server.close(() => resolve()));
-}
-
 export async function waitForBrowserAuthorization(
   options: WaitForBrowserAuthorizationOptions,
 ): Promise<BrowserAuthorizationResult> {
@@ -194,15 +196,57 @@ export async function waitForBrowserAuthorization(
 
   let expectedHost = '';
   let redirectUri = '';
-  let settle: ((result: BrowserAuthorizationResult) => void) | undefined;
+  let resolveResult: ((result: BrowserAuthorizationResult) => void) | undefined;
   let rejectResult: ((error: DropsCliError) => void) | undefined;
   const result = new Promise<BrowserAuthorizationResult>((resolve, reject) => {
-    settle = resolve;
+    resolveResult = resolve;
     rejectResult = reject;
   });
-  let finished = false;
-  let timer: NodeJS.Timeout | undefined;
+  let settled = false;
+  let terminalResponseStarted = false;
+  let authorizationTimer: NodeJS.Timeout | undefined;
+  let responseTimer: NodeJS.Timeout | undefined;
+  const sockets = new Set<Socket>();
+
+  const clearAuthorizationTimer = () => {
+    if (authorizationTimer === undefined) return;
+    clearTimeout(authorizationTimer);
+    authorizationTimer = undefined;
+  };
+
+  const settleAndCleanup = (outcome: BrowserAuthorizationResult | DropsCliError) => {
+    if (settled) return;
+    settled = true;
+    clearAuthorizationTimer();
+    if (responseTimer !== undefined) {
+      clearTimeout(responseTimer);
+      responseTimer = undefined;
+    }
+    if (server.listening) server.close(() => {});
+    for (const socket of sockets) socket.destroy();
+    if (outcome instanceof DropsCliError) rejectResult!(outcome);
+    else resolveResult!(outcome);
+  };
+
   const server = createServer((request, response) => {
+    const respondAndSettle = (
+      outcome: BrowserAuthorizationResult | DropsCliError,
+      status: number,
+      body: string,
+    ) => {
+      if (terminalResponseStarted) {
+        response.writeHead(409, { 'content-type': 'text/plain; charset=utf-8' }).end('Callback already received');
+        return;
+      }
+      terminalResponseStarted = true;
+      clearAuthorizationTimer();
+      const complete = () => settleAndCleanup(outcome);
+      response.once('finish', complete);
+      response.once('close', complete);
+      responseTimer = setTimeout(complete, RESPONSE_SETTLE_TIMEOUT_MS);
+      response.writeHead(status, { 'content-type': 'text/plain; charset=utf-8' }).end(body);
+    };
+
     if (request.url === undefined || request.headers.host !== expectedHost) {
       response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Invalid callback request');
       return;
@@ -217,36 +261,38 @@ export async function waitForBrowserAuthorization(
       return;
     }
 
-    const finish = (error?: DropsCliError, code?: string) => {
-      if (finished) return;
-      finished = true;
-      if (timer !== undefined) clearTimeout(timer);
-      response.once('finish', () => {
-        void closeServer(server).then(() => {
-          if (error !== undefined) rejectResult!(error);
-          else settle!({ code: code!, redirectUri });
-        });
-      });
-    };
     const state = requestUrl.searchParams.get('state');
     if (state !== options.state) {
-      finish(denied('The browser returned an invalid authorisation response'));
-      response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Invalid authorisation response');
+      respondAndSettle(
+        denied('The browser returned an invalid authorisation response'),
+        400,
+        'Invalid authorisation response',
+      );
       return;
     }
     if (requestUrl.searchParams.get('error') === 'access_denied') {
-      finish(denied());
-      response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end('Authorisation denied. You may close this window.');
+      respondAndSettle(denied(), 200, 'Authorisation denied. You may close this window.');
       return;
     }
     const code = requestUrl.searchParams.get('code');
     if (code === null || code.length === 0) {
-      finish(denied('The browser returned an invalid authorisation response'));
-      response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Invalid authorisation response');
+      respondAndSettle(
+        denied('The browser returned an invalid authorisation response'),
+        400,
+        'Invalid authorisation response',
+      );
       return;
     }
-    finish(undefined, code);
-    response.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' }).end('Authorisation complete. You may close this window.');
+    respondAndSettle(
+      { code, redirectUri },
+      200,
+      'Authorisation complete. You may close this window.',
+    );
+  });
+  server.on('connection', (socket) => {
+    sockets.add(socket);
+    socket.once('close', () => sockets.delete(socket));
+    if (settled) socket.destroy();
   });
 
   try {
@@ -260,24 +306,21 @@ export async function waitForBrowserAuthorization(
     if (port === undefined) throw denied('Could not start the local authorisation callback');
     expectedHost = `${LOOPBACK_HOST}:${port}`;
     redirectUri = `http://${expectedHost}/callback`;
-    timer = setTimeout(() => {
-      if (finished) return;
-      finished = true;
-      void closeServer(server).then(() => rejectResult!(denied('Browser authorisation timed out')));
-    }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    authorizationTimer = setTimeout(
+      () => settleAndCleanup(denied('Browser authorisation timed out')),
+      options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    );
     await opener(buildAuthorizeUrl(options.origin, {
       redirectUri,
       state: options.state,
       challenge: options.challenge,
     }));
-    return await result;
   } catch (error) {
-    if (timer !== undefined) clearTimeout(timer);
-    finished = true;
-    await closeServer(server);
-    if (error instanceof DropsCliError) throw error;
-    throw denied('Could not open the browser for authorisation');
+    settleAndCleanup(
+      error instanceof DropsCliError ? error : denied('Could not open the browser for authorisation'),
+    );
   }
+  return await result;
 }
 
 export function createAuthDependencies(openBrowser: BrowserOpener = openMacOsBrowser): AuthDependencies {

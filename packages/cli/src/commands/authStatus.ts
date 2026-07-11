@@ -1,4 +1,4 @@
-// ABOUTME: Parses auth-status instance selection and invokes the non-mutating identity query.
+// ABOUTME: Parses auth-status instance selection and invokes identity validation with stale-token cleanup.
 // ABOUTME: Allows repository configuration only when no positional or flag origin is supplied.
 import { parseArgs } from 'node:util';
 

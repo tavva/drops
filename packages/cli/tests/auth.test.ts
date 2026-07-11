@@ -1,8 +1,9 @@
 // ABOUTME: Verifies secure PKCE generation, loopback callback validation, and browser launching.
 // ABOUTME: Keeps browser and timing effects injectable so the authentication flow is deterministic.
 import { createHash } from 'node:crypto';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { request } from 'node:http';
+import { connect } from 'node:net';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -163,6 +164,74 @@ describe('loopback browser authorisation', () => {
     await expect(get(`${redirectUri}?state=expected-state&code=late`)).rejects.toThrow();
   });
 
+  it('times out within bounds and closes a raw TCP connection that never sends a request', async () => {
+    let redirectUri = '';
+    let notifyOpened!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      notifyOpened = resolve;
+    });
+    const pending = waitForBrowserAuthorization({
+      origin: 'https://drops.example.com',
+      state: 'expected-state',
+      challenge: 'challenge',
+      timeoutMs: 100,
+      portCandidates: [50_129],
+      openBrowser: async (url) => {
+        redirectUri = new URL(url).searchParams.get('redirect_uri')!;
+        notifyOpened();
+      },
+    });
+    const settled = pending.catch((error: unknown) => error);
+    await opened;
+    const redirect = new URL(redirectUri);
+    const socket = connect({ host: redirect.hostname, port: Number(redirect.port) });
+    await once(socket, 'connect');
+    const socketClosed = once(socket, 'close');
+
+    let deadlineTimer!: NodeJS.Timeout;
+    const deadline = new Promise<'deadline'>((resolve) => {
+      deadlineTimer = setTimeout(() => resolve('deadline'), 250);
+    });
+    const outcome = await Promise.race([settled, deadline]);
+    clearTimeout(deadlineTimer);
+    if (outcome === 'deadline') socket.destroy();
+
+    expect(outcome).toMatchObject({ code: 'authorisation_denied', exitCode: 3 });
+    await socketClosed;
+    await expect(get(`${redirectUri}?state=expected-state&code=late`)).rejects.toThrow();
+  });
+
+  it('settles once and closes the listener when the browser aborts a valid callback response', async () => {
+    let redirectUri = '';
+    let notifyOpened!: () => void;
+    const opened = new Promise<void>((resolve) => {
+      notifyOpened = resolve;
+    });
+    const pending = waitForBrowserAuthorization({
+      origin: 'https://drops.example.com',
+      state: 'expected-state',
+      challenge: 'challenge',
+      timeoutMs: 100,
+      portCandidates: [50_130],
+      openBrowser: async (url) => {
+        redirectUri = new URL(url).searchParams.get('redirect_uri')!;
+        notifyOpened();
+      },
+    });
+    await opened;
+    const redirect = new URL(redirectUri);
+    const socket = connect({ host: redirect.hostname, port: Number(redirect.port) });
+    await once(socket, 'connect');
+    socket.write(
+      `GET ${redirect.pathname}?state=expected-state&code=one-time-code HTTP/1.1\r\nHost: ${redirect.host}\r\nConnection: keep-alive\r\n\r\n`,
+      () => socket.resetAndDestroy(),
+    );
+
+    await expect(pending).resolves.toEqual({ code: 'one-time-code', redirectUri });
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await expect(get(`${redirectUri}?state=expected-state&code=again`)).rejects.toThrow();
+  });
+
   it('retries a busy candidate port and closes the listener when opening the browser fails', async () => {
     let opened = '';
     const first = waitForBrowserAuthorization({
@@ -215,5 +284,14 @@ describe('browser opener and device label', () => {
     expect(createDeviceLabel(() => 'Ben\u0000s\u0085Mac')).toBe('Drops CLI on BensMac');
     expect(createDeviceLabel(() => 'x'.repeat(200))).toBe(`Drops CLI on ${'x'.repeat(87)}`);
     expect(createDeviceLabel(() => '\u0000\u0085')).toBe('Drops CLI on unknown host');
+  });
+
+  it('truncates by Unicode code point without producing a lone surrogate', () => {
+    const label = createDeviceLabel(() => `${'x'.repeat(86)}😀😀`);
+
+    expect(Array.from(label)).toHaveLength(100);
+    expect(label).toBe(`Drops CLI on ${'x'.repeat(86)}😀`);
+    expect(label).not.toMatch(/[\uD800-\uDFFF]$/u);
+    expect(JSON.parse(JSON.stringify({ label }))).toEqual({ label });
   });
 });
