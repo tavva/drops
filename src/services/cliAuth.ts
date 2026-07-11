@@ -166,6 +166,17 @@ export async function listCliTokens(ownerId: string) {
     .orderBy(asc(cliTokens.createdAt));
 }
 
+export async function listActiveCliTokens(ownerId: string) {
+  return db.select({
+    id: cliTokens.id,
+    label: cliTokens.label,
+    createdAt: cliTokens.createdAt,
+    lastUsedAt: cliTokens.lastUsedAt,
+  }).from(cliTokens)
+    .where(and(eq(cliTokens.userId, ownerId), isNull(cliTokens.revokedAt)))
+    .orderBy(asc(cliTokens.createdAt));
+}
+
 export async function deleteExpiredCliAuthorizationCodes(): Promise<number> {
   const rows = await db.delete(cliAuthorizationCodes)
     .where(or(

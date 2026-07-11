@@ -4,7 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { listFolderTree, type FolderTree } from '@/services/folders';
 import { formatBytes } from '@/lib/format';
 import { dropOriginFor } from '@/lib/dropHost';
-import { listCliTokens } from '@/services/cliAuth';
+import { listActiveCliTokens } from '@/services/cliAuth';
 
 export interface DashboardRenderOptions {
   banner?: { kind: 'error' | 'info'; message: string } | null;
@@ -15,8 +15,14 @@ export interface DashboardRenderOptions {
 export interface FolderPathEntry { id: string; path: string }
 
 const dateTimeFormatter = new Intl.DateTimeFormat('en-GB', {
-  dateStyle: 'medium',
-  timeStyle: 'short',
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hourCycle: 'h23',
+  timeZone: 'UTC',
+  timeZoneName: 'short',
 });
 
 function formatDateTime(value: Date): string {
@@ -43,11 +49,12 @@ export async function renderDashboard(
 ) {
   const user = req.user!;
   const mineOnly = (req.query as { mine?: string }).mine === '1';
-  const tree = await listFolderTree({ id: user.id, email: user.email }, { mineOnly });
+  const [tree, activeCliTokens] = await Promise.all([
+    listFolderTree({ id: user.id, email: user.email }, { mineOnly }),
+    listActiveCliTokens(user.id),
+  ]);
   const folderPathList = buildFolderPathList(tree);
-  const cliTokens = (await listCliTokens(user.id))
-    .filter((token) => token.revokedAt === null)
-    .map((token) => ({ ...token, label: token.label.slice(0, 100) }));
+  const cliTokens = activeCliTokens.map((token) => ({ ...token, label: token.label.slice(0, 100) }));
   if (opts.statusCode) reply.code(opts.statusCode);
   return reply.view('dashboard.ejs', {
     user,

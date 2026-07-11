@@ -8,6 +8,7 @@ import { createSession } from '@/services/sessions';
 import { signCookie } from '@/lib/cookies';
 import { issueCsrfToken } from '@/lib/csrf';
 import { config } from '@/config';
+import { listActiveCliTokens } from '@/services/cliAuth';
 
 let app: Awaited<ReturnType<typeof import('@/server').buildServer>>;
 let aliceId: string;
@@ -79,7 +80,9 @@ describe('CLI access on the dashboard', () => {
     expect(response.body).not.toContain('<script>alert(1)</script>');
     expect(response.body).not.toContain('x'.repeat(101));
     expect(response.body).toContain('10 Jul 2026');
-    expect(response.body).toContain('11 Jul 2026');
+    expect(response.body).toContain('10 Jul 2026, 10:15 UTC');
+    expect(response.body).toContain('11 Jul 2026, 11:30 UTC');
+    expect(response.body).toContain('All times UTC');
     expect(response.body).toContain('Never used');
     expect(response.body).toContain('Never');
     expect(response.body).not.toContain('Revoked');
@@ -87,6 +90,16 @@ describe('CLI access on the dashboard', () => {
     expect(response.body).not.toContain('alice-secret-hash');
     expect(response.body).not.toContain('alice-never-secret');
     expect(response.body).not.toContain('bob-secret-hash');
+  });
+
+  it('selects only active authorisations in the dashboard query', async () => {
+    await db.insert(cliTokens).values([
+      { userId: aliceId, tokenHash: 'active-query-hash', label: 'Active' },
+      { userId: aliceId, tokenHash: 'revoked-query-hash', label: 'Revoked', revokedAt: new Date() },
+      { userId: bobId, tokenHash: 'other-query-hash', label: 'Other owner' },
+    ]);
+
+    await expect(listActiveCliTokens(aliceId)).resolves.toMatchObject([{ label: 'Active' }]);
   });
 
   it('requires a valid session-bound CSRF token to revoke an owner authorisation', async () => {
