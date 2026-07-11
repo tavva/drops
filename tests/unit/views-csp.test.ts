@@ -17,6 +17,7 @@ const files = ejsFiles(join(process.cwd(), 'src/views'));
 describe('views are CSP-clean', () => {
   it('finds template files', () => {
     expect(files.length).toBeGreaterThan(0);
+    expect(files.some((file) => file.endsWith('cliAuthorize.ejs'))).toBe(true);
   });
 
   it.each(files)('%s has no inline script/handler/style', (file) => {

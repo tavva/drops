@@ -1,0 +1,50 @@
+<% /* cliAuthorize.ejs */ %>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+    <title>Authorise Drops CLI — drops</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 32'><path d='M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z' fill='%23ff5a3c'/><ellipse cx='8.5' cy='18' rx='2.2' ry='3' fill='%23ffd9cf' opacity='0.55'/></svg>">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Space+Grotesk:wght@500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap">
+    <link rel="stylesheet" href="/app/static/style.css">
+  </head>
+  <body>
+    <div class="auth-wrap">
+      <main class="auth-card cli-auth-card">
+        <div class="auth-logo">
+          <svg viewBox="0 0 24 32" aria-hidden="true">
+            <path class="body" d="M12 2 C 12 2, 2 15, 2 22 a10 10 0 0 0 20 0 C 22 15, 12 2, 12 2 Z"/>
+            <ellipse class="hl" cx="8.5" cy="18" rx="2.2" ry="3"/>
+          </svg>
+        </div>
+        <h1>Authorise Drops CLI</h1>
+        <p class="deck">Allow the Drops CLI to connect to <span class="mono"><%= instance %></span>.</p>
+
+        <div class="cli-capabilities">
+          <p>The CLI will be able to:</p>
+          <ul>
+            <li>read your Drops identity</li>
+            <li>create or update your own drops</li>
+          </ul>
+        </div>
+
+        <% const fields = { redirect_uri: redirectUri, state, code_challenge: codeChallenge, code_challenge_method: codeChallengeMethod, _csrf: csrfToken }; %>
+        <div class="cli-authorize-actions">
+          <form method="post" action="/app/cli/authorize/deny">
+            <% for (const [name, value] of Object.entries(fields)) { %><input type="hidden" name="<%= name %>" value="<%= value %>"><% } %>
+            <button class="btn ghost lg" type="submit">Deny</button>
+          </form>
+          <form method="post" action="/app/cli/authorize/approve">
+            <% for (const [name, value] of Object.entries(fields)) { %><input type="hidden" name="<%= name %>" value="<%= value %>"><% } %>
+            <button class="btn primary lg" type="submit">Authorise</button>
+          </form>
+        </div>
+        <p class="cli-auth-note">Only continue if you started this login from the Drops CLI.</p>
+      </main>
+    </div>
+  </body>
+</html>

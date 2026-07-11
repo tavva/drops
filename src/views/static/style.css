@@ -327,6 +327,20 @@ code, kbd, .mono { font-family: var(--font-mono); }
   margin-top: 18px;
 }
 
+.cli-auth-card { max-width: 480px; }
+.cli-capabilities {
+  text-align: left; margin: 22px 0;
+  padding: 16px 18px;
+  background: var(--bg-3); border: 1px solid var(--line);
+  border-radius: var(--r-md); color: var(--ink-2);
+}
+.cli-capabilities p { margin: 0 0 8px; color: var(--ink-1); font-weight: 500; }
+.cli-capabilities ul { margin: 0; padding-left: 20px; }
+.cli-capabilities li + li { margin-top: 6px; }
+.cli-authorize-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cli-authorize-actions form { margin: 0; }
+.cli-auth-note { color: var(--ink-4); font-size: 11.5px; margin: 18px 0 0; }
+
 /* Form fields */
 .field { text-align: left; margin-bottom: 14px; }
 .field > label {
