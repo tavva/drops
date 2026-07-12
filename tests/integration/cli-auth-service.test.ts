@@ -101,7 +101,8 @@ describe('CLI authorisation codes', () => {
     const expired = await issueCliAuthorizationCode({ userId: memberId, redirectUri, codeChallenge: challenge });
     const consumed = await issueCliAuthorizationCode({ userId: memberId, redirectUri, codeChallenge: challenge });
     const live = await issueCliAuthorizationCode({ userId: memberId, redirectUri, codeChallenge: challenge });
-    await db.update(cliAuthorizationCodes).set({ expiresAt: new Date(Date.now() - 1) })
+    const comfortablyExpiredAt = new Date(Date.now() - 60_000);
+    await db.update(cliAuthorizationCodes).set({ expiresAt: comfortablyExpiredAt })
       .where(eq(cliAuthorizationCodes.codeHash, createHash('sha256').update(expired.code).digest('hex')));
     await exchangeCliAuthorizationCode({ code: consumed.code, verifier, redirectUri, label: 'Mac' });
 
