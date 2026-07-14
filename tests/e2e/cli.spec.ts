@@ -155,7 +155,18 @@ test('built executable handles safe local commands without injected dependencies
     const help = await invoke(['--help']);
     expect(help.exitCode).toBe(0);
     expect(help.stderr).not.toContain('Error [');
-    expect(help.stdout).toContain('drops <login|logout|auth status|init|deploy>');
+    expect(help.stdout).toContain('Quick start:');
+    expect(help.stdout).toContain('drops help --json');
+
+    const jsonHelp = await invoke(['help', '--json']);
+    expect(jsonHelp.exitCode).toBe(0);
+    expect(parseJson(jsonHelp)).toMatchObject({
+      helpVersion: 1,
+      cli: 'drops',
+      commands: expect.arrayContaining([
+        expect.objectContaining({ name: 'deploy', usage: expect.stringContaining('drops deploy') }),
+      ]),
+    });
 
     const init = await invoke(['init', '--instance', origin, '--json']);
     expect(init.exitCode).toBe(0);
@@ -168,9 +179,12 @@ test('built executable handles safe local commands without injected dependencies
     expect(parseJson(missingName)).toEqual({
       error: {
         code: 'usage_error',
-        message: 'Usage: drops deploy <path> --name <name> [--instance <origin>] [--json]; --name is required',
+        message: 'Provide the required --name.',
         instance: null,
         details: null,
+        usage: 'drops deploy <path> --name <name> [--instance <origin>] [--json]',
+        hint: 'Run drops deploy --help for full command details.',
+        examples: ['drops deploy ./dist --name preview'],
       },
     });
 
@@ -182,6 +196,9 @@ test('built executable handles safe local commands without injected dependencies
         message: 'The drop name must be a valid slug',
         instance: null,
         details: { name: 'INVALID' },
+        usage: null,
+        hint: 'Use lowercase letters, numbers, and single hyphens; names must start and end with a letter or number.',
+        examples: ['drops deploy ./dist --name design-preview'],
       },
     });
     expect(tracker.spawnedCommands).not.toContain('/usr/bin/security');
