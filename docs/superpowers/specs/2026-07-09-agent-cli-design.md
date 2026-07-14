@@ -378,6 +378,26 @@ repository root.
 
 ## Output and Errors
 
+### Agent-discoverable help
+
+The CLI is self-documenting without requiring access to the repository or npm
+README. `drops`, `drops --help`, and `drops help` print a quick-start workflow
+and a command summary. Every command supports both `drops <command> --help` and
+`drops help <command>`; the two-word `auth status` command supports the same
+forms.
+
+Adding `--json` returns the same help catalogue as a versioned JSON document.
+Root help contains every command, while command help contains one command's
+summary, usage, arguments, options, examples, and notes. This is the supported
+machine-readable discovery surface for agents.
+
+CLI-originated errors may include structured guidance: `usage`, `hint`, and
+`examples`. Human mode renders those as readable follow-up lines; JSON mode
+places them in the error object without mixing diagnostics into stdout. Unknown
+commands point to root help, usage failures point to the exact command help,
+missing repository instances explain both `drops init` and `--instance`, and
+missing credentials name the exact login command.
+
 Human output uses stderr for progress and prints the final live URL clearly.
 Every v1 command (`login`, `logout`, `init`, `auth status`, and `deploy`) accepts
 `--json`. In JSON mode, stdout is reserved for exactly one JSON object followed
