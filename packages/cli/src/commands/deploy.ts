@@ -3,13 +3,7 @@
 import { parseArgs } from 'node:util';
 
 import { deploy, type DeployDependencies } from '../deploy.js';
-import { DropsCliError } from '../errors.js';
-
-const USAGE = 'Usage: drops deploy <path> --name <name> [--instance <origin>] [--json]';
-
-function usage(message: string): DropsCliError {
-  return new DropsCliError({ code: 'usage_error', message, exitCode: 2 });
-}
+import { argumentErrorMessage, commandUsageError } from '../help.js';
 
 export interface ParsedDeployArguments {
   path: string;
@@ -20,11 +14,11 @@ export interface ParsedDeployArguments {
 
 export function parseDeployArguments(argv: string[]): ParsedDeployArguments {
   const nameOccurrences = argv.filter((argument) => argument === '--name' || argument.startsWith('--name=')).length;
-  if (nameOccurrences > 1) throw usage(`${USAGE}; provide --name exactly once`);
+  if (nameOccurrences > 1) throw commandUsageError('deploy', 'Provide --name exactly once.');
   const instanceOccurrences = argv.filter(
     (argument) => argument === '--instance' || argument.startsWith('--instance='),
   ).length;
-  if (instanceOccurrences > 1) throw usage(`${USAGE}; provide --instance at most once`);
+  if (instanceOccurrences > 1) throw commandUsageError('deploy', 'Provide --instance at most once.');
 
   let parsed;
   try {
@@ -39,13 +33,15 @@ export function parseDeployArguments(argv: string[]): ParsedDeployArguments {
       strict: true,
     });
   } catch (error) {
-    if (error instanceof TypeError) throw usage(`${USAGE}; ${error.message}`);
+    if (error instanceof TypeError) throw commandUsageError('deploy', argumentErrorMessage(error));
     throw error;
   }
 
-  if (parsed.positionals.length === 0) throw usage(USAGE);
-  if (parsed.positionals.length !== 1) throw usage(`${USAGE}; provide exactly one source path`);
-  if (parsed.values.name === undefined) throw usage(`${USAGE}; --name is required`);
+  if (parsed.positionals.length === 0) {
+    throw commandUsageError('deploy', 'Provide one source path and the required --name.');
+  }
+  if (parsed.positionals.length !== 1) throw commandUsageError('deploy', 'Provide exactly one source path.');
+  if (parsed.values.name === undefined) throw commandUsageError('deploy', 'Provide the required --name.');
   return {
     path: parsed.positionals[0]!,
     name: parsed.values.name,

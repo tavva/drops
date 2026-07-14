@@ -53,11 +53,20 @@ export function createOutput(options: OutputOptions): DropsOutput {
               message: redactSecrets(error.message),
               instance: error.instance === null ? null : redactSecrets(error.instance),
               details: redactValue(error.details),
+              usage: error.guidance.usage === null ? null : redactSecrets(error.guidance.usage),
+              hint: error.guidance.hint === null ? null : redactSecrets(error.guidance.hint),
+              examples: error.guidance.examples.map(redactSecrets),
             },
           })}\n`,
         );
       } else {
-        options.stderr.write(`Error [${error.code}]: ${redactSecrets(error.message)}\n`);
+        const lines = [`Error [${error.code}]: ${redactSecrets(error.message)}`];
+        if (error.guidance.usage !== null) lines.push(`Usage: ${redactSecrets(error.guidance.usage)}`);
+        if (error.guidance.hint !== null) lines.push(`Hint: ${redactSecrets(error.guidance.hint)}`);
+        if (error.guidance.examples.length > 0) {
+          lines.push('Examples:', ...error.guidance.examples.map((example) => `  ${redactSecrets(example)}`));
+        }
+        options.stderr.write(`${lines.join('\n')}\n`);
       }
       return error.exitCode;
     },

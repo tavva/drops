@@ -14,10 +14,13 @@ import { createDeployDependencies, type DeployDependencies } from './deploy.js';
 import { DropsCliError } from './errors.js';
 import {
   commandHelpValue,
+  argumentErrorMessage,
+  commandUsageError,
   parseHelpRequest,
   renderCommandHelp,
   renderRootHelp,
   rootHelpValue,
+  rootGuidance,
 } from './help.js';
 import { createLifecycleRegistry, type LifecycleRegistry } from './lifecycle.js';
 import { createOutput, type TextWriter } from './output.js';
@@ -57,10 +60,6 @@ export function installSignalHandlers(lifecycle: Pick<LifecycleRegistry, 'cleanu
   install('SIGTERM', 143);
 }
 
-function usageError(code: string, message: string): DropsCliError {
-  return new DropsCliError({ code, message, exitCode: 2 });
-}
-
 function normaliseError(error: unknown): DropsCliError {
   if (error instanceof DropsCliError) return error;
   return new DropsCliError({ code: 'internal_error', message: 'Unexpected CLI error', exitCode: 6 });
@@ -77,7 +76,7 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
 
   const command = argv[0];
   if (command === undefined) {
-    throw usageError('command_required', 'Usage: drops <command>');
+    throw new DropsCliError({ code: 'command_required', message: 'Choose a command.', guidance: rootGuidance(), exitCode: 2 });
   }
 
   if (command === 'login') {
@@ -101,7 +100,7 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
 
   if (command === 'auth') {
     if (argv[1] !== 'status') {
-      throw usageError('usage_error', 'Usage: drops auth status [origin] [--instance <origin>] [--json]');
+      throw commandUsageError('auth status', 'The auth command currently supports only auth status.');
     }
     const parsed = parseAuthStatusArguments(argv.slice(2));
     const result = await runAuthStatusCommand({ ...parsed, cwd }, dependencies.auth);
@@ -129,7 +128,15 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
   }
 
   if (command !== 'init') {
-    throw usageError('command_not_implemented', `Command ${command} is not implemented yet`);
+    const shown = command === 'help'
+      ? argv.filter((argument) => argument !== '--json').slice(1).join(' ') || 'help'
+      : command;
+    throw new DropsCliError({
+      code: 'unknown_command',
+      message: `Unknown command "${shown}".`,
+      guidance: rootGuidance(),
+      exitCode: 2,
+    });
   }
 
   let parsed;
@@ -145,12 +152,12 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
       strict: true,
     });
   } catch (error) {
-    if (error instanceof TypeError) throw usageError('usage_error', error.message);
+    if (error instanceof TypeError) throw commandUsageError('init', argumentErrorMessage(error));
     throw error;
   }
 
   if (parsed.values.instance === undefined) {
-    throw usageError('instance_required', 'Usage: drops init --instance <origin> [--force] [--json]');
+    throw commandUsageError('init', 'Provide the required --instance origin.');
   }
 
   const result = await runInitCommand({

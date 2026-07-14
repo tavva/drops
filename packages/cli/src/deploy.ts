@@ -64,6 +64,10 @@ export async function deploy(
       code: 'invalid_name',
       message: 'The drop name must be a valid slug',
       details: { name: options.name },
+      guidance: {
+        hint: 'Use lowercase letters, numbers, and single hyphens; names must start and end with a letter or number.',
+        examples: ['drops deploy ./dist --name design-preview'],
+      },
       exitCode: 2,
     });
   }
@@ -76,8 +80,12 @@ export async function deploy(
   if (token === null) {
     throw new DropsCliError({
       code: 'not_authenticated',
-      message: `Run: drops login ${origin}`,
+      message: `This Mac is not authenticated to ${origin}.`,
       instance: origin,
+      guidance: {
+        hint: 'Authenticate this exact instance before deploying.',
+        examples: [`drops login ${origin}`],
+      },
       exitCode: 3,
     });
   }

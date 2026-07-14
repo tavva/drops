@@ -50,7 +50,14 @@ export async function resolveInstance(options: ResolveInstanceOptions): Promise<
 
   throw new DropsCliError({
     code: 'instance_required',
-    message: 'Choose an instance with --instance or run drops init --instance <origin>',
+    message: 'No Drops instance is configured for this repository.',
+    guidance: {
+      hint: 'Configure this repository with drops init, or select an instance for this command with --instance.',
+      examples: [
+        'drops init --instance https://drops.example.com',
+        'drops deploy ./dist --name preview --instance https://drops.example.com',
+      ],
+    },
     exitCode: 2,
   });
 }

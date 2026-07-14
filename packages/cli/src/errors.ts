@@ -13,11 +13,24 @@ export const EXIT_CODES = {
 
 export type DropsCliErrorDetails = Record<string, unknown> | null;
 
+export interface DropsCliErrorGuidance {
+  usage?: string;
+  hint?: string;
+  examples?: string[];
+}
+
+export interface ResolvedDropsCliErrorGuidance {
+  usage: string | null;
+  hint: string | null;
+  examples: string[];
+}
+
 export interface DropsCliErrorOptions {
   code: string;
   message: string;
   instance?: string | null;
   details?: DropsCliErrorDetails;
+  guidance?: DropsCliErrorGuidance;
   exitCode: DropsCliExitCode;
 }
 
@@ -25,6 +38,7 @@ export class DropsCliError extends Error {
   readonly code: string;
   readonly instance: string | null;
   readonly details: DropsCliErrorDetails;
+  readonly guidance: ResolvedDropsCliErrorGuidance;
   readonly exitCode: DropsCliExitCode;
 
   constructor(options: DropsCliErrorOptions) {
@@ -33,6 +47,11 @@ export class DropsCliError extends Error {
     this.code = options.code;
     this.instance = options.instance ?? null;
     this.details = options.details ?? null;
+    this.guidance = {
+      usage: options.guidance?.usage ?? null,
+      hint: options.guidance?.hint ?? null,
+      examples: [...(options.guidance?.examples ?? [])],
+    };
     this.exitCode = options.exitCode;
   }
 }

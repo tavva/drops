@@ -1,5 +1,6 @@
 // ABOUTME: Defines one agent-readable command catalogue and renders equivalent human help.
 // ABOUTME: Parses root and focused help before strict command argument parsing runs.
+import { DropsCliError, type DropsCliErrorGuidance } from './errors.js';
 
 export interface HelpField {
   syntax: string;
@@ -164,6 +165,37 @@ export function rootHelpValue(): RootHelpValue {
 
 export function commandHelpValue(name: HelpCommandName): CommandHelpValue {
   return { helpVersion: 1, cli: 'drops', command: command(name) };
+}
+
+export function commandGuidance(name: HelpCommandName): DropsCliErrorGuidance {
+  const item = command(name);
+  return {
+    usage: item.usage,
+    hint: `Run drops ${item.name} --help for full command details.`,
+    examples: [item.examples[0]!],
+  };
+}
+
+export function commandUsageError(name: HelpCommandName, message: string): DropsCliError {
+  return new DropsCliError({
+    code: 'usage_error',
+    message,
+    guidance: commandGuidance(name),
+    exitCode: 2,
+  });
+}
+
+export function rootGuidance(): DropsCliErrorGuidance {
+  return {
+    usage: 'drops <command> [options]',
+    hint: 'Run drops --help for human help or drops help --json for the command catalogue.',
+    examples: ['drops --help', 'drops help --json'],
+  };
+}
+
+export function argumentErrorMessage(error: TypeError): string {
+  const message = error.message.split('. To specify a positional argument starting with')[0] ?? error.message;
+  return `Invalid arguments: ${message.replace(/\.$/u, '')}.`;
 }
 
 function renderFields(title: string, fields: HelpField[]): string[] {

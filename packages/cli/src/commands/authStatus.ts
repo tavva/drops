@@ -3,13 +3,7 @@
 import { parseArgs } from 'node:util';
 
 import { authStatus, type AuthDependencies } from '../auth.js';
-import { DropsCliError } from '../errors.js';
-
-const USAGE = 'Usage: drops auth status [origin] [--instance <origin>] [--json]';
-
-function usage(message: string): DropsCliError {
-  return new DropsCliError({ code: 'usage_error', message, exitCode: 2 });
-}
+import { argumentErrorMessage, commandUsageError } from '../help.js';
 
 export interface ParsedAuthStatusArguments {
   instance?: string;
@@ -20,9 +14,9 @@ export function parseAuthStatusArguments(argv: string[]): ParsedAuthStatusArgume
   const instanceOccurrences = argv.filter(
     (argument) => argument === '--instance' || argument.startsWith('--instance='),
   ).length;
-  if (instanceOccurrences > 1) throw usage(`${USAGE}; provide --instance at most once`);
+  if (instanceOccurrences > 1) throw commandUsageError('auth status', 'Provide --instance at most once.');
   const jsonOccurrences = argv.filter((argument) => argument === '--json').length;
-  if (jsonOccurrences > 1) throw usage(`${USAGE}; provide --json at most once`);
+  if (jsonOccurrences > 1) throw commandUsageError('auth status', 'Provide --json at most once.');
   let parsed;
   try {
     parsed = parseArgs({
@@ -35,12 +29,12 @@ export function parseAuthStatusArguments(argv: string[]): ParsedAuthStatusArgume
       strict: true,
     });
   } catch (error) {
-    if (error instanceof TypeError) throw usage(`${USAGE}; ${error.message}`);
+    if (error instanceof TypeError) throw commandUsageError('auth status', argumentErrorMessage(error));
     throw error;
   }
-  if (parsed.positionals.length > 1) throw usage(`${USAGE}; provide exactly one origin`);
+  if (parsed.positionals.length > 1) throw commandUsageError('auth status', 'Provide at most one instance origin.');
   if (parsed.positionals.length === 1 && parsed.values.instance !== undefined) {
-    throw usage(`${USAGE}; choose either a positional origin or --instance`);
+    throw commandUsageError('auth status', 'Choose either a positional origin or --instance, not both.');
   }
   const instance = parsed.positionals[0] ?? parsed.values.instance;
   return { ...(instance === undefined ? {} : { instance }), json: parsed.values.json };

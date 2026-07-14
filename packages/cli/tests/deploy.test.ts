@@ -40,7 +40,7 @@ describe('parseDeployArguments', () => {
   });
 
   it.each([
-    [[], 'Usage: drops deploy <path> --name <name> [--instance <origin>] [--json]'],
+    [[], 'Provide one source path and the required --name.'],
     [['one', 'two', '--name', 'sample'], 'exactly one source path'],
     [['dist'], '--name'],
     [['dist', '--name', 'one', '--name', 'two'], '--name'],
@@ -117,8 +117,12 @@ describe('deploy', () => {
     await expect(deploy({ cwd: '/repo', path: 'dist', name: 'sample-site' }, setup.deps)).rejects.toEqual(
       expect.objectContaining({
         code: 'not_authenticated',
-        message: 'Run: drops login https://drops.example.com',
+        message: 'This Mac is not authenticated to https://drops.example.com.',
         instance: 'https://drops.example.com',
+        guidance: expect.objectContaining({
+          hint: 'Authenticate this exact instance before deploying.',
+          examples: ['drops login https://drops.example.com'],
+        }),
         exitCode: 3,
       }),
     );

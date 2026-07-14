@@ -83,6 +83,13 @@ describe('resolveInstance', () => {
     await expect(resolveInstance({ cwd, explicit: undefined })).rejects.toMatchObject({
       code: 'instance_required',
       instance: null,
+      guidance: {
+        hint: 'Configure this repository with drops init, or select an instance for this command with --instance.',
+        examples: [
+          'drops init --instance https://drops.example.com',
+          'drops deploy ./dist --name preview --instance https://drops.example.com',
+        ],
+      },
       exitCode: 2,
     });
   });

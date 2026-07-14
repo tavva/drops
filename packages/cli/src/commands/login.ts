@@ -3,13 +3,7 @@
 import { parseArgs } from 'node:util';
 
 import { login, type AuthDependencies, type AuthorizeUrlReporter } from '../auth.js';
-import { DropsCliError } from '../errors.js';
-
-const USAGE = 'Usage: drops login <origin> [--json]';
-
-function usage(message: string): DropsCliError {
-  return new DropsCliError({ code: 'usage_error', message, exitCode: 2 });
-}
+import { argumentErrorMessage, commandUsageError } from '../help.js';
 
 export interface ParsedLoginArguments {
   origin: string;
@@ -18,7 +12,7 @@ export interface ParsedLoginArguments {
 
 export function parseLoginArguments(argv: string[]): ParsedLoginArguments {
   const jsonOccurrences = argv.filter((argument) => argument === '--json').length;
-  if (jsonOccurrences > 1) throw usage(`${USAGE}; provide --json at most once`);
+  if (jsonOccurrences > 1) throw commandUsageError('login', 'Provide --json at most once.');
   let parsed;
   try {
     parsed = parseArgs({
@@ -28,10 +22,10 @@ export function parseLoginArguments(argv: string[]): ParsedLoginArguments {
       strict: true,
     });
   } catch (error) {
-    if (error instanceof TypeError) throw usage(`${USAGE}; ${error.message}`);
+    if (error instanceof TypeError) throw commandUsageError('login', argumentErrorMessage(error));
     throw error;
   }
-  if (parsed.positionals.length !== 1) throw usage(`${USAGE}; provide exactly one origin`);
+  if (parsed.positionals.length !== 1) throw commandUsageError('login', 'Provide exactly one instance origin.');
   return { origin: parsed.positionals[0]!, json: parsed.values.json };
 }
 

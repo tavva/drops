@@ -109,7 +109,7 @@ describe('JSON output', () => {
 
     expect(exitCode).toBe(3);
     expect(captured.stdout).toBe(
-      '{"error":{"code":"not_authenticated","message":"Rejected [REDACTED]","instance":"https://drops.example.com","details":{"received":"Bearer [REDACTED]","retryable":false}}}\n',
+      '{"error":{"code":"not_authenticated","message":"Rejected [REDACTED]","instance":"https://drops.example.com","details":{"received":"Bearer [REDACTED]","retryable":false},"usage":null,"hint":null,"examples":[]}}\n',
     );
     expect(captured.stdout.trimEnd().split('\n')).toHaveLength(1);
     expect(captured.stderr).toBe('');
@@ -126,6 +126,32 @@ describe('human output', () => {
 
     expect(captured.stdout).toBe('Configured /repo/.drops.json\n');
     expect(captured.stderr).toBe('Error [instance_required]: Run drops init\n');
+  });
+
+  it('renders actionable guidance for humans without putting it on stdout', () => {
+    const captured = capture();
+    const output = createOutput({ json: false, ...captured.io });
+
+    output.error(new DropsCliError({
+      code: 'usage_error',
+      message: 'Provide one source path and the required --name.',
+      guidance: {
+        usage: 'drops deploy <path> --name <name> [--instance <origin>] [--json]',
+        hint: 'Run drops deploy --help for full command details.',
+        examples: ['drops deploy ./dist --name preview'],
+      },
+      exitCode: 2,
+    }));
+
+    expect(captured.stdout).toBe('');
+    expect(captured.stderr).toBe([
+      'Error [usage_error]: Provide one source path and the required --name.',
+      'Usage: drops deploy <path> --name <name> [--instance <origin>] [--json]',
+      'Hint: Run drops deploy --help for full command details.',
+      'Examples:',
+      '  drops deploy ./dist --name preview',
+      '',
+    ].join('\n'));
   });
 });
 
@@ -168,9 +194,12 @@ describe('runCli', () => {
     expect(JSON.parse(captured.stdout)).toEqual({
       error: {
         code: 'usage_error',
-        message: 'Usage: drops deploy <path> --name <name> [--instance <origin>] [--json]',
+        message: 'Provide one source path and the required --name.',
         instance: null,
         details: null,
+        usage: 'drops deploy <path> --name <name> [--instance <origin>] [--json]',
+        hint: 'Run drops deploy --help for full command details.',
+        examples: ['drops deploy ./dist --name preview'],
       },
     });
     expect(captured.stderr).toBe('');
@@ -183,7 +212,13 @@ describe('runCli', () => {
 
     expect(exitCode).toBe(2);
     expect(JSON.parse(captured.stdout)).toMatchObject({
-      error: { code: 'usage_error', instance: null, details: null },
+      error: {
+        code: 'usage_error',
+        instance: null,
+        details: null,
+        usage: 'drops init --instance <origin> [--force] [--json]',
+        hint: 'Run drops init --help for full command details.',
+      },
     });
     expect(captured.stderr).toBe('');
   });
@@ -206,9 +241,31 @@ describe('runCli', () => {
         message: 'Unexpected CLI error',
         instance: null,
         details: null,
+        usage: null,
+        hint: null,
+        examples: [],
       },
     });
     expect(captured.stderr).toBe('');
+  });
+
+  it('explains an unknown command and points agents to machine-readable help', async () => {
+    const captured = capture();
+
+    const exitCode = await runCli(['frobnicate', '--json'], { cwd: process.cwd(), ...captured.io });
+
+    expect(exitCode).toBe(2);
+    expect(JSON.parse(captured.stdout)).toEqual({
+      error: {
+        code: 'unknown_command',
+        message: 'Unknown command "frobnicate".',
+        instance: null,
+        details: null,
+        usage: 'drops <command> [options]',
+        hint: 'Run drops --help for human help or drops help --json for the command catalogue.',
+        examples: ['drops --help', 'drops help --json'],
+      },
+    });
   });
 
   it.each([

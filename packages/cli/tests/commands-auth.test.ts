@@ -229,9 +229,12 @@ describe('auth command parsing and output', () => {
     expect(parseLoginArguments([ORIGIN, '--json'])).toEqual({ origin: ORIGIN, json: true });
     expect(parseLogoutArguments(['--instance', ORIGIN])).toEqual({ instance: ORIGIN, json: false });
     expect(parseAuthStatusArguments([ORIGIN])).toEqual({ instance: ORIGIN, json: false });
-    expect(() => parseLoginArguments([])).toThrow(/Usage: drops login/);
+    expect(() => parseLoginArguments([])).toThrow(expect.objectContaining({
+      message: 'Provide exactly one instance origin.',
+      guidance: expect.objectContaining({ usage: 'drops login <origin> [--json]' }),
+    }));
     expect(() => parseLogoutArguments([ORIGIN, '--instance', ORIGIN])).toThrow(/either/);
-    expect(() => parseAuthStatusArguments([ORIGIN, 'https:\/\/other.example.com'])).toThrow(/exactly one/);
+    expect(() => parseAuthStatusArguments([ORIGIN, 'https:\/\/other.example.com'])).toThrow(/at most one/);
     expect(() => parseLogoutArguments(['--instance', ORIGIN, '--instance', ORIGIN])).toThrow(/at most once/);
   });
 
