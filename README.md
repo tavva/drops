@@ -93,6 +93,14 @@ Install the standalone CLI with pnpm:
 pnpm add --global @tavva/drops-cli
 ```
 
+When working from this source checkout before the package is published, build
+and link it from the repository root:
+
+```bash
+pnpm cli:build
+pnpm --dir packages/cli exec pnpm link --global
+```
+
 Authenticate in your browser, configure the current repository, and deploy a built artefact:
 
 ```bash
@@ -104,6 +112,11 @@ drops logout
 ```
 
 `drops login` is currently macOS-only because credentials are stored in Keychain. The bearer token never belongs in the repository: `.drops.json` contains only the instance origin, is safe to commit, and is discovered from the current directory or its parents. Always provide an explicit drop name with `--name`; deploying the same name replaces that drop atomically.
+
+Login always prints the complete browser-authorisation URL to stderr before
+attempting to open it, providing a copy-and-paste fallback when macOS does not
+show a browser window. JSON mode keeps this instruction on stderr so stdout
+remains exactly one machine-readable result.
 
 Credentials are independent and keyed by each instance's exact origin. A repository's `.drops.json` selects its default, while `--instance https://other.example.com` overrides that default for commands that accept it. Sign in separately to each instance.
 

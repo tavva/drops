@@ -76,7 +76,11 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
   if (command === 'login') {
     const parsed = parseLoginArguments(argv.slice(1));
     const result = await runLoginCommand(
-      { ...parsed, onBrowserOpen: () => diagnostic('Authorising in browser…') },
+      {
+        ...parsed,
+        onBrowserOpen: () => diagnostic('Authorising in browser…'),
+        onAuthorizeUrl: (url) => diagnostic(`Open this URL if the browser does not open:\n${url}`),
+      },
       dependencies.auth,
     );
     return { value: { ...result }, human: `Authenticated to ${result.instance} as ${result.user.username}` };

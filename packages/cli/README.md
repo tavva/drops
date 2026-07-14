@@ -8,7 +8,21 @@ The command-line client for publishing local files, folders, and zip archives to
 pnpm add --global @tavva/drops-cli
 ```
 
+To link the CLI directly from a Drops source checkout while developing it, run
+this from the repository root:
+
+```bash
+pnpm cli:build
+pnpm --dir packages/cli exec pnpm link --global
+```
+
+Do not use `pnpm --dir packages/cli link --global`: pnpm links the workspace
+root package for that command instead of the CLI package.
+
 The CLI requires Node.js 22 or newer and currently supports macOS credential storage. Browser-approved bearer credentials are stored in macOS Keychain, keyed by the instance's exact origin.
+
+`drops login` prints its complete authorisation URL before trying to open the
+browser, so you can copy and paste the URL if no window appears.
 
 ## Use
 

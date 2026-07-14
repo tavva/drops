@@ -172,8 +172,9 @@ may not cross origins.
 1. The CLI creates a high-entropy state, a PKCE verifier, and its S256
    challenge.
 2. It binds an HTTP listener to an ephemeral port on `127.0.0.1` only.
-3. It opens the instance's `GET /app/cli/authorize` with the loopback redirect
-   URI, state, challenge, and `code_challenge_method=S256`.
+3. It prints the full authorisation URL to stderr so the user can copy and
+   paste it, then opens the instance's `GET /app/cli/authorize` with the
+   loopback redirect URI, state, challenge, and `code_challenge_method=S256`.
 4. The app requires a completed member session. An unauthenticated user goes
    through the existing Google login flow and returns to the authorisation
    page.
@@ -377,7 +378,8 @@ Human output uses stderr for progress and prints the final live URL clearly.
 Every v1 command (`login`, `logout`, `init`, `auth status`, and `deploy`) accepts
 `--json`. In JSON mode, stdout is reserved for exactly one JSON object followed
 by a newline; it never contains progress, browser-login instructions, or
-logging noise. Interactive login instructions and progress remain on stderr.
+logging noise. Interactive login instructions, including the copyable browser
+authorisation URL, and progress remain on stderr.
 
 Successful JSON shapes are command-specific and stable:
 

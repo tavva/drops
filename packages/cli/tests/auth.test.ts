@@ -63,6 +63,30 @@ describe('PKCE and authorisation URL', () => {
 });
 
 describe('loopback browser authorisation', () => {
+  it('reports the copyable authorisation URL before trying to open the browser', async () => {
+    let reported = '';
+    let opened = '';
+    const pending = waitForBrowserAuthorization({
+      origin: 'https://drops.example.com',
+      state: 'expected-state',
+      challenge: 'challenge',
+      timeoutMs: 2_000,
+      portCandidates: [50_131],
+      onAuthorizeUrl: (url) => {
+        reported = url;
+      },
+      openBrowser: async (url) => {
+        opened = url;
+        expect(reported).toBe(url);
+        throw new Error('open failed');
+      },
+    });
+
+    await expect(pending).rejects.toMatchObject({ code: 'authorisation_denied', exitCode: 3 });
+    expect(reported).toBe(opened);
+    expect(reported).toContain('https://drops.example.com/app/cli/authorize?');
+  });
+
   it('binds in the private dynamic range and accepts only the exact callback, state, and host', async () => {
     let opened = '';
     const pending = waitForBrowserAuthorization({

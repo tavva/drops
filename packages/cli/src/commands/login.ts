@@ -2,7 +2,7 @@
 // ABOUTME: Requires one explicit origin and keeps interactive progress behind a callback.
 import { parseArgs } from 'node:util';
 
-import { login, type AuthDependencies } from '../auth.js';
+import { login, type AuthDependencies, type AuthorizeUrlReporter } from '../auth.js';
 import { DropsCliError } from '../errors.js';
 
 const USAGE = 'Usage: drops login <origin> [--json]';
@@ -36,8 +36,12 @@ export function parseLoginArguments(argv: string[]): ParsedLoginArguments {
 }
 
 export async function runLoginCommand(
-  options: ParsedLoginArguments & { onBrowserOpen: () => void },
+  options: ParsedLoginArguments & { onBrowserOpen: () => void; onAuthorizeUrl: AuthorizeUrlReporter },
   dependencies?: AuthDependencies,
 ) {
-  return login({ origin: options.origin, onBrowserOpen: options.onBrowserOpen }, dependencies);
+  return login({
+    origin: options.origin,
+    onBrowserOpen: options.onBrowserOpen,
+    onAuthorizeUrl: options.onAuthorizeUrl,
+  }, dependencies);
 }

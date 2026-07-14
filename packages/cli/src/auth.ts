@@ -42,6 +42,7 @@ export interface BrowserAuthorizationResult {
 }
 
 export type BrowserOpener = (url: string) => Promise<void>;
+export type AuthorizeUrlReporter = (url: string) => void;
 
 interface SpawnedBrowser {
   once(event: 'spawn', listener: () => void): unknown;
@@ -59,6 +60,7 @@ export interface WaitForBrowserAuthorizationOptions {
   origin: string;
   state: string;
   challenge: string;
+  onAuthorizeUrl?: AuthorizeUrlReporter;
   openBrowser?: BrowserOpener;
   timeoutMs?: number;
   portCandidates?: number[];
@@ -78,7 +80,7 @@ export interface AuthApi {
 export interface AuthDependencies {
   api: AuthApi;
   store: CredentialStore;
-  browserAuthorize(origin: string): Promise<BrowserLoginResult>;
+  browserAuthorize(origin: string, onAuthorizeUrl?: AuthorizeUrlReporter): Promise<BrowserLoginResult>;
   hostname: () => string;
   resolveInstance?: typeof resolveInstance;
 }
@@ -86,6 +88,7 @@ export interface AuthDependencies {
 export interface LoginOptions {
   origin: string;
   onBrowserOpen?: () => void;
+  onAuthorizeUrl?: AuthorizeUrlReporter;
 }
 
 export interface ResolvedAuthOptions {
@@ -310,11 +313,13 @@ export async function waitForBrowserAuthorization(
       () => settleAndCleanup(denied('Browser authorisation timed out')),
       options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     );
-    await opener(buildAuthorizeUrl(options.origin, {
+    const authorizeUrl = buildAuthorizeUrl(options.origin, {
       redirectUri,
       state: options.state,
       challenge: options.challenge,
-    }));
+    });
+    options.onAuthorizeUrl?.(authorizeUrl);
+    await opener(authorizeUrl);
   } catch (error) {
     settleAndCleanup(
       error instanceof DropsCliError ? error : denied('Could not open the browser for authorisation'),
@@ -329,12 +334,13 @@ export function createAuthDependencies(openBrowser: BrowserOpener = openMacOsBro
     store: new MacOsKeychainStore(),
     hostname: osHostname,
     resolveInstance,
-    async browserAuthorize(origin) {
+    async browserAuthorize(origin, onAuthorizeUrl) {
       const pkce = createPkce();
       const result = await waitForBrowserAuthorization({
         origin,
         state: pkce.state,
         challenge: pkce.challenge,
+        onAuthorizeUrl,
         openBrowser,
       });
       return { ...result, verifier: pkce.verifier };
@@ -371,7 +377,7 @@ export async function login(
   if (existing !== null) await revokeStoredToken(origin, existing, dependencies);
 
   options.onBrowserOpen?.();
-  const approval = await dependencies.browserAuthorize(origin);
+  const approval = await dependencies.browserAuthorize(origin, options.onAuthorizeUrl);
   const issued = await dependencies.api.exchangeCode({
     origin,
     code: approval.code,

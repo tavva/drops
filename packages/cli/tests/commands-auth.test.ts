@@ -18,6 +18,7 @@ import { runCli } from '../src/index.js';
 import type { CredentialStore } from '../src/keychain.js';
 
 const ORIGIN = 'https://drops.example.com';
+const AUTHORIZE_URL = `${ORIGIN}/app/cli/authorize?state=copy-me`;
 const USER: DropsUser = { id: 'user-1', email: 'user@example.com', username: 'alice' };
 
 function commandError(code: string, exitCode: 3 | 5 | 6): DropsCliError {
@@ -77,8 +78,9 @@ function dependencies(options: {
     dependencies: {
       api,
       store,
-      browserAuthorize: vi.fn(async () => {
+      browserAuthorize: vi.fn(async (_origin, onAuthorizeUrl) => {
         order.push('browser');
+        onAuthorizeUrl?.(AUTHORIZE_URL);
         return { code: 'auth-code', verifier: 'verifier', redirectUri: 'http://127.0.0.1:50123/callback' };
       }),
       hostname: () => 'Ben\u0000s-Mac',
@@ -250,8 +252,9 @@ describe('auth command parsing and output', () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe(`${JSON.stringify({ instance: ORIGIN, user: USER })}\n`);
-    expect(stderr).toContain('browser');
+    expect(stderr).toBe(`Authorising in browser…\nOpen this URL if the browser does not open:\n${AUTHORIZE_URL}\n`);
     expect(stdout).not.toContain('Authoris');
+    expect(stdout).not.toContain(AUTHORIZE_URL);
   });
 
   it('emits exact logout and status JSON plus readable human status', async () => {
