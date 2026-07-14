@@ -111,6 +111,20 @@ drops auth status --json
 drops logout
 ```
 
+The installed CLI is self-documenting. Humans can start with root or focused
+help, while agents can request the complete versioned command catalogue as one
+JSON document:
+
+```bash
+drops --help
+drops deploy --help
+drops help --json
+```
+
+CLI errors include an exact usage string, a recovery hint, and runnable
+examples when those fields can help. With `--json`, that guidance stays inside
+the single error object written to stdout.
+
 `drops login` is currently macOS-only because credentials are stored in Keychain. The bearer token never belongs in the repository: `.drops.json` contains only the instance origin, is safe to commit, and is discovered from the current directory or its parents. Always provide an explicit drop name with `--name`; deploying the same name replaces that drop atomically.
 
 Login always prints the complete browser-authorisation URL to stderr before

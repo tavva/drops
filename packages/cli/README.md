@@ -26,6 +26,19 @@ browser, so you can copy and paste the URL if no window appears.
 
 ## Use
 
+Discover the full workflow from the installed tool:
+
+```bash
+drops --help
+drops deploy --help
+drops help --json
+```
+
+`drops help --json` is the agent-facing discovery surface. It returns a
+versioned catalogue containing every command's summary, usage, arguments,
+options, examples, and notes. Actionable errors also expose `usage`, `hint`,
+and `examples` fields in JSON mode.
+
 ```bash
 drops login https://drops.example.com
 drops init --instance https://drops.example.com
