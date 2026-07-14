@@ -253,6 +253,10 @@ token must not appear in process arguments, logs, config files, environment
 variables, or shell history. If Keychain is unavailable or denies access, the
 operation fails; there is no plaintext fallback.
 
+The `/usr/bin/security` subprocess runs without a controlling terminal and
+receives the token only through a private stdin pipe. Credential storage never
+asks the user to type or retype the generated token.
+
 The CLI supplies the bounded label `Drops CLI on <hostname>`, where hostname is
 the local macOS hostname stripped of control characters and the complete label
 is capped at 100 characters. There is no label flag in v1.

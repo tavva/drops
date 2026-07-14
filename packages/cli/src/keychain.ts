@@ -35,7 +35,7 @@ function appendBounded(current: Buffer, chunk: Buffer): Buffer {
 
 export const runProcess: ProcessRunner = ({ command, args, stdin }) =>
   new Promise((resolve, reject) => {
-    const child = spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
     let stdout: Buffer = Buffer.alloc(0);
     let stderr: Buffer = Buffer.alloc(0);
 

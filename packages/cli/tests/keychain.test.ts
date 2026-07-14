@@ -1,8 +1,20 @@
 // ABOUTME: Verifies secure, per-instance macOS Keychain credential storage behavior.
 // ABOUTME: Ensures bearer secrets travel only over stdin and never leak through failures.
-import { describe, expect, it } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 
-import { MacOsKeychainStore, type ProcessRequest, type ProcessResult } from '../src/keychain.js';
+import { describe, expect, it, vi } from 'vitest';
+
+const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
+
+vi.mock('node:child_process', () => ({ spawn: spawnMock }));
+
+import {
+  MacOsKeychainStore,
+  runProcess,
+  type ProcessRequest,
+  type ProcessResult,
+} from '../src/keychain.js';
 
 function recordingRunner(results: ProcessResult[]) {
   const requests: ProcessRequest[] = [];
@@ -18,6 +30,29 @@ function recordingRunner(results: ProcessResult[]) {
 }
 
 describe('MacOsKeychainStore', () => {
+  it('detaches the security subprocess so it cannot prompt on the controlling terminal', async () => {
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    spawnMock.mockReturnValueOnce(child);
+
+    const pending = runProcess({
+      command: '/usr/bin/security',
+      args: ['add-generic-password', '-w'],
+      stdin: 'secret\nsecret\n',
+    });
+    child.emit('close', 0);
+
+    await expect(pending).resolves.toMatchObject({ exitCode: 0 });
+    expect(spawnMock).toHaveBeenCalledWith(
+      '/usr/bin/security',
+      ['add-generic-password', '-w'],
+      { detached: true, stdio: ['pipe', 'pipe', 'pipe'] },
+    );
+  });
+
   it('gets the credential for the exact origin account', async () => {
     const harness = recordingRunner([{ exitCode: 0, stdout: 'drops_cli_token\n', stderr: '' }]);
     const store = new MacOsKeychainStore(harness.runner);
