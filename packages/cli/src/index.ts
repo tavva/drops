@@ -12,6 +12,13 @@ import { parseLoginArguments, runLoginCommand } from './commands/login.js';
 import { parseLogoutArguments, runLogoutCommand } from './commands/logout.js';
 import { createDeployDependencies, type DeployDependencies } from './deploy.js';
 import { DropsCliError } from './errors.js';
+import {
+  commandHelpValue,
+  parseHelpRequest,
+  renderCommandHelp,
+  renderRootHelp,
+  rootHelpValue,
+} from './help.js';
 import { createLifecycleRegistry, type LifecycleRegistry } from './lifecycle.js';
 import { createOutput, type TextWriter } from './output.js';
 
@@ -60,17 +67,17 @@ function normaliseError(error: unknown): DropsCliError {
 }
 
 const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dependencies = {}) => {
+  const help = parseHelpRequest(argv);
+  if (help !== null) {
+    if (help.command === undefined) {
+      return { value: rootHelpValue(), human: renderRootHelp() };
+    }
+    return { value: commandHelpValue(help.command), human: renderCommandHelp(help.command) };
+  }
+
   const command = argv[0];
   if (command === undefined) {
     throw usageError('command_required', 'Usage: drops <command>');
-  }
-
-  if (command === '--help' || command === 'help') {
-    if (argv.length !== 1) throw usageError('usage_error', 'Usage: drops --help');
-    return {
-      value: { usage: 'drops <login|logout|auth status|init|deploy>' },
-      human: 'Usage: drops <login|logout|auth status|init|deploy>',
-    };
   }
 
   if (command === 'login') {
