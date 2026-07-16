@@ -165,6 +165,7 @@ test('built executable handles safe local commands without injected dependencies
       cli: 'drops',
       commands: expect.arrayContaining([
         expect.objectContaining({ name: 'deploy', usage: expect.stringContaining('drops deploy') }),
+        expect.objectContaining({ name: 'list', usage: expect.stringContaining('drops list') }),
       ]),
     });
 
@@ -310,6 +311,24 @@ test('login, configure, deploy, serve, select instances, and revoke CLI access',
 
     const status = await runCli(['auth', 'status', '--json'], childOptions);
     expect(parseJson(status)).toMatchObject({ instance: APP_ORIGIN, authenticated: true });
+
+    const listAll = await runCli(['list', '--json'], childOptions);
+    expect(listAll.exitCode).toBe(0);
+    const listed = parseJson(listAll);
+    expect(listed).toMatchObject({ instance: APP_ORIGIN });
+    expect((listed.drops as Array<{ name: string }>).map((drop) => drop.name)).toEqual(['cli-preview']);
+
+    const listFiles = await runCli(['list', 'cli-preview', '--json'], childOptions);
+    expect(listFiles.exitCode).toBe(0);
+    const files = parseJson(listFiles);
+    expect(files).toMatchObject({ instance: APP_ORIGIN, name: 'cli-preview' });
+    expect((files.files as Array<{ path: string; size: number }>).some(
+      (file) => file.path.endsWith('index.html') && file.size > 0,
+    )).toBe(true);
+
+    const listMissing = await runCli(['list', 'no-such-drop', '--json'], childOptions);
+    expect(listMissing.exitCode).toBe(4);
+    expect(parseJson(listMissing)).toMatchObject({ error: { code: 'drop_not_found' } });
 
     // The second instance deliberately implements only minimal v1 discovery, whoami, and deploy
     // endpoints. It proves exactly three client boundaries: exact discovery-origin equality,
