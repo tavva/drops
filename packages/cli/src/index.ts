@@ -8,6 +8,12 @@ import { createAuthDependencies, type AuthDependencies } from './auth.js';
 import { parseAuthStatusArguments, runAuthStatusCommand } from './commands/authStatus.js';
 import { parseDeployArguments, runDeployCommand } from './commands/deploy.js';
 import { runInitCommand } from './commands/init.js';
+import {
+  parseListArguments,
+  renderDropFiles,
+  renderDropsList,
+  runListCommand,
+} from './commands/list.js';
 import { parseLoginArguments, runLoginCommand } from './commands/login.js';
 import { parseLogoutArguments, runLogoutCommand } from './commands/logout.js';
 import { createDeployDependencies, type DeployDependencies } from './deploy.js';
@@ -23,6 +29,7 @@ import {
   rootGuidance,
 } from './help.js';
 import { createLifecycleRegistry, type LifecycleRegistry } from './lifecycle.js';
+import { createListDependencies, type ListDependencies } from './list.js';
 import { createOutput, type TextWriter } from './output.js';
 
 export interface CliRuntime {
@@ -34,6 +41,7 @@ export interface CliRuntime {
 export interface CliDependencies {
   deploy?: DeployDependencies;
   auth?: AuthDependencies;
+  list?: ListDependencies;
 }
 
 interface CommandResult {
@@ -127,6 +135,13 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
     return { value: { ...result }, human: result.url };
   }
 
+  if (command === 'list') {
+    const parsed = parseListArguments(argv.slice(1));
+    const result = await runListCommand({ ...parsed, cwd }, dependencies.list);
+    const human = 'files' in result ? renderDropFiles(result) : renderDropsList(result);
+    return { value: { ...result }, human };
+  }
+
   if (command !== 'init') {
     const shown = command === 'help'
       ? argv.filter((argument) => argument !== '--json').slice(1).join(' ') || 'help'
@@ -194,5 +209,6 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   }, undefined, {
     deploy: createDeployDependencies(lifecycle.register),
     auth: createAuthDependencies(),
+    list: createListDependencies(),
   });
 }

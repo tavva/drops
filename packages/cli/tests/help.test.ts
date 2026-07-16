@@ -30,7 +30,7 @@ describe('root help', () => {
     expect(result.stdout).toContain('drops login https://drops.example.com');
     expect(result.stdout).toContain('drops init --instance https://drops.example.com');
     expect(result.stdout).toContain('drops deploy ./dist --name preview');
-    for (const command of ['login', 'init', 'deploy', 'auth status', 'logout']) {
+    for (const command of ['login', 'init', 'deploy', 'list', 'auth status', 'logout']) {
       expect(result.stdout).toContain(command);
     }
     expect(result.stdout).toContain('drops help --json');
@@ -50,9 +50,14 @@ describe('root help', () => {
         'login',
         'init',
         'deploy',
+        'list',
         'auth status',
         'logout',
       ]);
+      expect(help.commands[3]).toMatchObject({
+        name: 'list',
+        usage: 'drops list [name] [--instance <origin>] [--json]',
+      });
       expect(help.commands[2]).toMatchObject({
         name: 'deploy',
         usage: 'drops deploy <path> --name <name> [--instance <origin>] [--json]',
@@ -69,6 +74,8 @@ describe('command help', () => {
     [['help', 'deploy'], 'deploy'],
     [['auth', 'status', '--help'], 'auth status'],
     [['help', 'auth', 'status'], 'auth status'],
+    [['list', '--help'], 'list'],
+    [['help', 'list'], 'list'],
     [['login', '--help'], 'login'],
     [['init', '--help'], 'init'],
     [['logout', '--help'], 'logout'],
