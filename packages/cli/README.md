@@ -43,9 +43,13 @@ and `examples` fields in JSON mode.
 drops login https://drops.example.com
 drops init --instance https://drops.example.com
 drops deploy ./dist --name preview --json
+drops list
+drops list preview
 drops auth status --json
 drops logout
 ```
+
+`drops list` shows the drops you own on the selected instance; add a drop name to list that drop's files with sizes.
 
 Commit the generated `.drops.json` if you want the repository to share its default instance. It contains only the instance origin, never credentials. Each deploy requires an explicit `--name`; use `--instance` to override the repository default when working with another independently authenticated instance.
 

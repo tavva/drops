@@ -8,6 +8,7 @@ import { cliDiscoveryRoute } from '../../../src/routes/cli/discovery';
 import { cliAuthorizeRoutes } from '../../../src/routes/cli/authorize';
 import { cliApiAuthRoutes } from '../../../src/routes/cli/apiAuth';
 import { cliDeployRoute } from '../../../src/routes/cli/deploy';
+import { cliListRoutes } from '../../../src/routes/cli/list';
 import { dashboardRoute } from '../../../src/routes/app/dashboard';
 import { cliTokenRoutes } from '../../../src/routes/app/cliTokens';
 import { dropServeRoute } from '../../../src/routes/content/dropServe';
@@ -21,6 +22,7 @@ await app.register(onAppHost(async (server) => {
   await server.register(cliAuthorizeRoutes);
   await server.register(cliApiAuthRoutes);
   await server.register(cliDeployRoute);
+  await server.register(cliListRoutes);
   await server.register(dashboardRoute);
   await server.register(cliTokenRoutes);
 }));

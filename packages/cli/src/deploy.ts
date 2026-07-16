@@ -5,13 +5,13 @@ import type { Readable } from 'node:stream';
 import { finished } from 'node:stream/promises';
 
 import { DropsApiClient, type DropsDeploymentResult } from './api.js';
-import { DropsCliError } from './errors.js';
+import { invalidDropNameError, notAuthenticatedError } from './errors.js';
 import { resolveInstance } from './instance.js';
 import { MacOsKeychainStore, type CredentialStore } from './keychain.js';
 import type { LifecycleRegistrar } from './lifecycle.js';
 import { packageSource, type PackagedSource, type PackageSourceOptions } from './packageSource.js';
 
-const DROP_SLUG = /^(?!.*--)[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/u;
+export const DROP_SLUG = /^(?!.*--)[a-z0-9][a-z0-9-]{0,30}[a-z0-9]$/u;
 
 function warn(callback: DeployOptions['onWarning'], message: string): void {
   try {
@@ -60,16 +60,7 @@ export async function deploy(
   dependencies: DeployDependencies = createDeployDependencies(),
 ): Promise<DropsDeploymentResult> {
   if (!DROP_SLUG.test(options.name)) {
-    throw new DropsCliError({
-      code: 'invalid_name',
-      message: 'The drop name must be a valid slug',
-      details: { name: options.name },
-      guidance: {
-        hint: 'Use lowercase letters, numbers, and single hyphens; names must start and end with a letter or number.',
-        examples: ['drops deploy ./dist --name design-preview'],
-      },
-      exitCode: 2,
-    });
+    throw invalidDropNameError(options.name, 'drops deploy ./dist --name design-preview');
   }
 
   const origin = await (dependencies.resolveInstance ?? resolveInstance)({
@@ -77,18 +68,7 @@ export async function deploy(
     explicit: options.instance,
   });
   const token = await dependencies.store.get(origin);
-  if (token === null) {
-    throw new DropsCliError({
-      code: 'not_authenticated',
-      message: `This Mac is not authenticated to ${origin}.`,
-      instance: origin,
-      guidance: {
-        hint: 'Authenticate this exact instance before deploying.',
-        examples: [`drops login ${origin}`],
-      },
-      exitCode: 3,
-    });
-  }
+  if (token === null) throw notAuthenticatedError(origin, 'deploying');
 
   await dependencies.api.discover(origin);
   const packaged = await dependencies.packageSource(options.path, {

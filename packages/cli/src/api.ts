@@ -31,6 +31,32 @@ export interface DropsDeploymentResult {
   entryPath: string | null;
 }
 
+export interface DropsListItem {
+  name: string;
+  url: string;
+  updatedAt: string;
+  byteSize: number;
+  fileCount: number;
+  entryPath: string | null;
+  versionId: string | null;
+}
+
+export interface DropsListResult {
+  instance: string;
+  drops: DropsListItem[];
+}
+
+export interface DropsFileEntry {
+  path: string;
+  size: number;
+}
+
+export interface DropsFilesResult {
+  instance: string;
+  name: string;
+  files: DropsFileEntry[];
+}
+
 export interface DropsApiErrorBody {
   error: {
     code: string;
@@ -127,6 +153,42 @@ function isDeployment(value: unknown): value is DropsDeploymentResult {
     typeof value.fileCount === 'number' &&
     typeof value.byteSize === 'number' &&
     (typeof value.entryPath === 'string' || value.entryPath === null)
+  );
+}
+
+function isListItem(value: unknown): value is DropsListItem {
+  return (
+    isRecord(value) &&
+    typeof value.name === 'string' &&
+    typeof value.url === 'string' &&
+    typeof value.updatedAt === 'string' &&
+    typeof value.byteSize === 'number' &&
+    typeof value.fileCount === 'number' &&
+    (typeof value.entryPath === 'string' || value.entryPath === null) &&
+    (typeof value.versionId === 'string' || value.versionId === null)
+  );
+}
+
+function isListResult(value: unknown): value is DropsListResult {
+  return (
+    isRecord(value) &&
+    typeof value.instance === 'string' &&
+    Array.isArray(value.drops) &&
+    value.drops.every(isListItem)
+  );
+}
+
+function isFileEntry(value: unknown): value is DropsFileEntry {
+  return isRecord(value) && typeof value.path === 'string' && typeof value.size === 'number';
+}
+
+function isFilesResult(value: unknown): value is DropsFilesResult {
+  return (
+    isRecord(value) &&
+    typeof value.instance === 'string' &&
+    typeof value.name === 'string' &&
+    Array.isArray(value.files) &&
+    value.files.every(isFileEntry)
   );
 }
 
@@ -275,6 +337,36 @@ export class DropsApiClient {
     const user = await jsonOrNull(response);
     if (!isUser(user)) throw serverError(origin);
     return user;
+  }
+
+  async listDrops(origin: string, token: string): Promise<DropsListResult> {
+    const response = await this.bearerRequest(origin, token, `${origin}/api/v1/drops`, { method: 'GET' });
+    if (response.status !== 200) await this.throwForResponse(response, origin, [token]);
+    const result = await jsonOrNull(response);
+    if (!isListResult(result)) throw serverError(origin);
+    return result;
+  }
+
+  async listDropFiles(origin: string, token: string, name: string): Promise<DropsFilesResult> {
+    const response = await this.bearerRequest(
+      origin,
+      token,
+      `${origin}/api/v1/drops/${encodeURIComponent(name)}/files`,
+      { method: 'GET' },
+    );
+    if (response.status === 404) {
+      throw new DropsCliError({
+        code: 'drop_not_found',
+        message: `No drop named "${name}" on ${origin}`,
+        instance: origin,
+        guidance: { hint: 'List your drops to see available names.', examples: ['drops list'] },
+        exitCode: 4,
+      });
+    }
+    if (response.status !== 200) await this.throwForResponse(response, origin, [token]);
+    const result = await jsonOrNull(response);
+    if (!isFilesResult(result)) throw serverError(origin);
+    return result;
   }
 
   async revokeCurrentToken(origin: string, token: string): Promise<RevokeCurrentTokenResult> {

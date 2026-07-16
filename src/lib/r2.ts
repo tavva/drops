@@ -72,8 +72,13 @@ export async function headObject(key: string) {
   }
 }
 
-export async function listPrefix(prefix: string): Promise<string[]> {
-  const keys: string[] = [];
+export interface R2Object {
+  key: string;
+  size: number;
+}
+
+export async function listPrefixObjects(prefix: string): Promise<R2Object[]> {
+  const objects: R2Object[] = [];
   let ContinuationToken: string | undefined;
   do {
     const out = await s3.send(new ListObjectsV2Command({
@@ -81,10 +86,14 @@ export async function listPrefix(prefix: string): Promise<string[]> {
       Prefix: prefix,
       ContinuationToken,
     }));
-    for (const c of out.Contents ?? []) if (c.Key) keys.push(c.Key);
+    for (const c of out.Contents ?? []) if (c.Key) objects.push({ key: c.Key, size: c.Size ?? 0 });
     ContinuationToken = out.IsTruncated ? out.NextContinuationToken : undefined;
   } while (ContinuationToken);
-  return keys;
+  return objects;
+}
+
+export async function listPrefix(prefix: string): Promise<string[]> {
+  return (await listPrefixObjects(prefix)).map((object) => object.key);
 }
 
 export async function deletePrefix(prefix: string): Promise<void> {

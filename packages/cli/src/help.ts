@@ -17,7 +17,7 @@ export interface CommandHelp {
   notes: string[];
 }
 
-export type HelpCommandName = 'login' | 'init' | 'deploy' | 'auth status' | 'logout';
+export type HelpCommandName = 'login' | 'init' | 'deploy' | 'list' | 'auth status' | 'logout';
 
 export interface RootHelpValue extends Record<string, unknown> {
   helpVersion: 1;
@@ -100,6 +100,26 @@ const COMMANDS: CommandHelp[] = [
     notes: [
       'Run drops login <origin> before the first deployment to an instance.',
       '--instance takes precedence over the repository default.',
+    ],
+  },
+  {
+    name: 'list',
+    summary: 'List your drops on the selected instance, or one drop’s files.',
+    usage: 'drops list [name] [--instance <origin>] [--json]',
+    arguments: [{ syntax: '[name]', description: 'Optional drop name; lists that drop’s files with sizes.' }],
+    options: [
+      { syntax: '--instance <origin>', description: 'Override the nearest repository .drops.json instance.' },
+      { syntax: '--json', description: 'Write exactly one machine-readable result to stdout.' },
+      { syntax: '--help', description: 'Show this command help.' },
+    ],
+    examples: [
+      'drops list',
+      'drops list preview',
+      'drops list --instance https://drops.other.example --json',
+    ],
+    notes: [
+      'Only drops you own are listed.',
+      'Run drops login <origin> before listing an instance.',
     ],
   },
   {

@@ -34,6 +34,32 @@ export interface DropsCliErrorOptions {
   exitCode: DropsCliExitCode;
 }
 
+export function notAuthenticatedError(origin: string, action: string): DropsCliError {
+  return new DropsCliError({
+    code: 'not_authenticated',
+    message: `This Mac is not authenticated to ${origin}.`,
+    instance: origin,
+    guidance: {
+      hint: `Authenticate this exact instance before ${action}.`,
+      examples: [`drops login ${origin}`],
+    },
+    exitCode: 3,
+  });
+}
+
+export function invalidDropNameError(name: string, example: string): DropsCliError {
+  return new DropsCliError({
+    code: 'invalid_name',
+    message: 'The drop name must be a valid slug',
+    details: { name },
+    guidance: {
+      hint: 'Use lowercase letters, numbers, and single hyphens; names must start and end with a letter or number.',
+      examples: [example],
+    },
+    exitCode: 2,
+  });
+}
+
 export class DropsCliError extends Error {
   readonly code: string;
   readonly instance: string | null;
