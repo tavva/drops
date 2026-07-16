@@ -28,6 +28,7 @@ import { cliDiscoveryRoute } from './routes/cli/discovery';
 import { cliAuthorizeRoutes } from './routes/cli/authorize';
 import { cliApiAuthRoutes } from './routes/cli/apiAuth';
 import { cliDeployRoute } from './routes/cli/deploy';
+import { cliListRoutes } from './routes/cli/list';
 import { contentServeRoute } from './routes/content/serve';
 import { dropServeRoute } from './routes/content/dropServe';
 import { startOrphanSweep } from './services/scheduler';
@@ -43,6 +44,7 @@ await app.register(onAppHost(async (s) => {
   await s.register(cliAuthorizeRoutes);
   await s.register(cliApiAuthRoutes);
   await s.register(cliDeployRoute);
+  await s.register(cliListRoutes);
   await s.register(loginRoute);
   await s.register(callbackRoute);
   await s.register(chooseUsernameRoute);
