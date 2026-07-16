@@ -6,6 +6,7 @@ import { db } from '@/db';
 import { cliTokens, drops, users } from '@/db/schema';
 import { config } from '@/config';
 import { dropOriginFor } from '@/lib/dropHost';
+import { putObject } from '@/lib/r2';
 import { onAppHost } from '@/middleware/host';
 import { registerCsrf } from '@/middleware/csrf';
 import { registerRateLimit } from '@/middleware/rateLimit';
@@ -100,5 +101,54 @@ describe('GET /api/v1/drops', () => {
       entryPath: null,
       versionId: first.versionId,
     });
+  });
+});
+
+describe('GET /api/v1/drops/:name/files', () => {
+  it('requires a bearer token', async () => {
+    const response = await appInstance.inject({
+      method: 'GET',
+      url: '/api/v1/drops/site/files',
+      headers: { host: 'drops.localtest.me' },
+    });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('rejects an invalid slug', async () => {
+    const response = await get('/api/v1/drops/NOT%20VALID/files');
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('invalid_name');
+  });
+
+  it("returns 404 for an unknown drop and for another user's drop", async () => {
+    const [other] = await db.insert(users).values({
+      email: `${randomUUID()}@example.com`, username: 'bob',
+    }).returning();
+    await createDropAndVersion(other!.id, 'not-mine', {
+      r2Prefix: `drops/${randomUUID()}/`, byteSize: 5, fileCount: 1,
+    });
+    for (const name of ['missing', 'not-mine']) {
+      const response = await get(`/api/v1/drops/${name}/files`);
+      expect(response.statusCode).toBe(404);
+      expect(response.json().error.code).toBe('drop_not_found');
+    }
+  });
+
+  it('lists file paths and sizes for the current version', async () => {
+    const prefix = `drops/${randomUUID()}/`;
+    await putObject(`${prefix}index.html`, Buffer.from('<h1>hello</h1>'));
+    await putObject(`${prefix}assets/app.js`, Buffer.from('console.log(1);\n'));
+    await createDropAndVersion(ownerId, 'site', { r2Prefix: prefix, byteSize: 30, fileCount: 2 });
+
+    const response = await get('/api/v1/drops/site/files');
+    expect(response.statusCode).toBe(200);
+    const payload = response.json();
+    expect(payload.instance).toBe(config.APP_ORIGIN);
+    expect(payload.name).toBe('site');
+    expect(payload.files).toEqual(expect.arrayContaining([
+      { path: 'index.html', size: Buffer.byteLength('<h1>hello</h1>') },
+      { path: 'assets/app.js', size: Buffer.byteLength('console.log(1);\n') },
+    ]));
+    expect(payload.files).toHaveLength(2);
   });
 });
