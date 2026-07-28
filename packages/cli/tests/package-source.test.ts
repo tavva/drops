@@ -201,9 +201,10 @@ describe('packageSource', () => {
     const packaged = await packageSource(source, { signal: controller.signal });
 
     controller.abort();
-    await new Promise((resolve) => setTimeout(resolve, 20));
 
-    await expect(stat(packaged.path)).rejects.toMatchObject({ code: 'ENOENT' });
+    await vi.waitFor(async () => {
+      await expect(stat(packaged.path)).rejects.toMatchObject({ code: 'ENOENT' });
+    });
     await packaged.cleanup();
   });
 
@@ -392,9 +393,10 @@ describe('packageSource', () => {
     });
 
     controller.abort();
-    await new Promise((resolve) => setTimeout(resolve, 10));
 
-    expect(warning).toHaveBeenCalledWith('Could not remove the temporary deployment archive');
+    await vi.waitFor(() => {
+      expect(warning).toHaveBeenCalledWith('Could not remove the temporary deployment archive');
+    });
     await expect(packaged.cleanup()).rejects.toThrow('private removal error');
   });
 
