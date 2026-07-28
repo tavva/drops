@@ -39,13 +39,20 @@ export interface ResolveInstanceOptions {
   explicit?: string;
 }
 
-export async function resolveInstance(options: ResolveInstanceOptions): Promise<string> {
-  if (options.explicit !== undefined) return canonicaliseInstance(options.explicit);
+export interface ResolvedInstance {
+  origin: string;
+  configPath: string | null;
+}
+
+export async function resolveInstanceSource(options: ResolveInstanceOptions): Promise<ResolvedInstance> {
+  if (options.explicit !== undefined) {
+    return { origin: canonicaliseInstance(options.explicit), configPath: null };
+  }
 
   const configPath = await findNearestConfig(options.cwd);
   if (configPath !== null) {
     const config = await readConfig(configPath);
-    return canonicaliseInstance(config.instance);
+    return { origin: canonicaliseInstance(config.instance), configPath };
   }
 
   throw new DropsCliError({
@@ -60,4 +67,8 @@ export async function resolveInstance(options: ResolveInstanceOptions): Promise<
     },
     exitCode: 2,
   });
+}
+
+export async function resolveInstance(options: ResolveInstanceOptions): Promise<string> {
+  return (await resolveInstanceSource(options)).origin;
 }

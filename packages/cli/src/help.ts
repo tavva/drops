@@ -40,8 +40,8 @@ export interface HelpRequest {
 const SUMMARY = 'Publish local files, folders, and zip archives to authenticated Drops instances.';
 
 const QUICK_START = [
-  'drops login https://drops.example.com',
   'drops init --instance https://drops.example.com',
+  'drops login',
   'drops deploy ./dist --name preview',
 ];
 
@@ -49,17 +49,20 @@ const COMMANDS: CommandHelp[] = [
   {
     name: 'login',
     summary: 'Authorise this Mac for one exact Drops instance using the browser.',
-    usage: 'drops login <origin> [--json]',
-    arguments: [{ syntax: '<origin>', description: 'Exact HTTPS app origin, such as https://drops.example.com.' }],
+    usage: 'drops login [origin] [--instance <origin>] [--json]',
+    arguments: [{ syntax: '[origin]', description: 'Exact HTTPS app origin, such as https://drops.example.com.' }],
     options: [
+      { syntax: '--instance <origin>', description: 'Override the nearest repository .drops.json instance.' },
       { syntax: '--json', description: 'Write exactly one machine-readable result to stdout.' },
       { syntax: '--help', description: 'Show this command help.' },
     ],
     examples: [
+      'drops login',
       'drops login https://drops.example.com',
-      'drops login https://drops.other.example --json',
+      'drops login --instance https://drops.other.example --json',
     ],
     notes: [
+      'Without an origin the nearest repository .drops.json is used, and the chosen origin is printed before the browser opens.',
       'The browser URL is also printed for copy and paste.',
       'Credentials are stored in macOS Keychain separately for each exact origin.',
     ],

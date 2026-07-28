@@ -3,7 +3,7 @@
 import { test, expect } from '@playwright/test';
 import type { ChildProcess } from 'node:child_process';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ChildProcessTracker, spawnWithResult, type SpawnResult } from './helpers/processes';
@@ -137,10 +137,10 @@ async function closeHttpServer(server: HttpServer | undefined): Promise<void> {
 }
 
 test('built executable handles safe local commands without injected dependencies', async () => {
-  // This layer runs dist/index.js exactly as published. It never calls login or a command that
-  // reaches credential lookup: deploy failures stop at argument/name validation. Therefore neither
-  // absolute /usr/bin/open nor /usr/bin/security is launched. The injected journey below owns
-  // status, authenticated deploy, missing-auth deploy, and full browser login coverage.
+  // This layer runs dist/index.js exactly as published. No command here reaches credential lookup:
+  // login stops at instance resolution and deploy failures stop at argument/name validation.
+  // Therefore neither absolute /usr/bin/open nor /usr/bin/security is launched. The injected
+  // journey below owns status, authenticated deploy, missing-auth deploy, and browser login.
   const temp = await mkdtemp(join(tmpdir(), 'drops-cli-bin-smoke-'));
   const tracker = new ChildProcessTracker();
   const bin = resolve('packages/cli/dist/index.js');
@@ -168,6 +168,10 @@ test('built executable handles safe local commands without injected dependencies
         expect.objectContaining({ name: 'list', usage: expect.stringContaining('drops list') }),
       ]),
     });
+
+    const unconfiguredLogin = await invoke(['login', '--json']);
+    expect(unconfiguredLogin.exitCode).toBe(2);
+    expect(parseJson(unconfiguredLogin)).toMatchObject({ error: { code: 'instance_required' } });
 
     const init = await invoke(['init', '--instance', origin, '--json']);
     expect(init.exitCode).toBe(0);
@@ -251,7 +255,12 @@ test('login, configure, deploy, serve, select instances, and revoke CLI access',
     ].join('; ');
 
     const childOptions = { cwd: repo, credentials, openedUrl, tracker };
-    const loginPromise = runCli(['login', APP_ORIGIN, '--json'], childOptions);
+    const init = await runCli(['init', '--instance', APP_ORIGIN, '--json'], childOptions);
+    expect(init.exitCode).toBe(0);
+    expect(JSON.parse(await readFile(join(repo, '.drops.json'), 'utf8'))).toEqual({ instance: APP_ORIGIN });
+    expect(await readFile(join(repo, '.drops.json'), 'utf8')).not.toContain('drops_cli_');
+
+    const loginPromise = runCli(['login', '--json'], childOptions);
     const authorizationUrl = await Promise.race([
       waitForOpenedUrl(openedUrl),
       loginPromise.then((result) => Promise.reject(new Error(
@@ -285,12 +294,8 @@ test('login, configure, deploy, serve, select instances, and revoke CLI access',
       user: { email: 'cli-user@example.com', username: 'cli-user' },
     });
     expect(login.stdout).not.toContain('drops_cli_');
+    expect(login.stderr).toContain(`Using instance ${APP_ORIGIN} from ${join(await realpath(repo), '.drops.json')}`);
     expect((await stat(credentials)).mode & 0o777).toBe(0o600);
-
-    const init = await runCli(['init', '--instance', APP_ORIGIN, '--json'], childOptions);
-    expect(init.exitCode).toBe(0);
-    expect(JSON.parse(await readFile(join(repo, '.drops.json'), 'utf8'))).toEqual({ instance: APP_ORIGIN });
-    expect(await readFile(join(repo, '.drops.json'), 'utf8')).not.toContain('drops_cli_');
 
     const deploy = await runCli(['deploy', './site', '--name', 'cli-preview', '--json'], childOptions);
     expect(deploy.exitCode).toBe(0);

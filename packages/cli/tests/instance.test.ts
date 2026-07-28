@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { canonicaliseInstance, resolveInstance } from '../src/instance.js';
+import { canonicaliseInstance, resolveInstance, resolveInstanceSource } from '../src/instance.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -91,6 +91,30 @@ describe('resolveInstance', () => {
         ],
       },
       exitCode: 2,
+    });
+  });
+});
+
+describe('resolveInstanceSource', () => {
+  it('reports the configuration file an implicit instance came from', async () => {
+    const root = await temporaryDirectory();
+    const nested = join(root, 'build');
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(root, '.drops.json'), '{"instance":"https://Drops.Example.com/"}\n');
+
+    await expect(resolveInstanceSource({ cwd: nested, explicit: undefined })).resolves.toEqual({
+      origin: 'https://drops.example.com',
+      configPath: join(root, '.drops.json'),
+    });
+  });
+
+  it('reports no configuration file for an explicit instance', async () => {
+    const cwd = await temporaryDirectory();
+    await writeFile(join(cwd, '.drops.json'), '{"instance":"https://config.example.com"}\n');
+
+    await expect(resolveInstanceSource({ cwd, explicit: 'https://flag.example.com/' })).resolves.toEqual({
+      origin: 'https://flag.example.com',
+      configPath: null,
     });
   });
 });

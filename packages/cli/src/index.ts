@@ -92,6 +92,8 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
     const result = await runLoginCommand(
       {
         ...parsed,
+        cwd,
+        onConfiguredInstance: (origin, configPath) => diagnostic(`Using instance ${origin} from ${configPath}`),
         onBrowserOpen: () => diagnostic('Authorising in browser…'),
         onAuthorizeUrl: (url) => diagnostic(`Open this URL if the browser does not open:\n${url}`),
       },

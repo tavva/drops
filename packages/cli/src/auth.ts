@@ -14,7 +14,7 @@ import {
   type RevokeCurrentTokenResult,
 } from './api.js';
 import { DropsCliError } from './errors.js';
-import { canonicaliseInstance, resolveInstance } from './instance.js';
+import { resolveInstanceSource } from './instance.js';
 import { MacOsKeychainStore, type CredentialStore } from './keychain.js';
 
 const LOOPBACK_HOST = '127.0.0.1';
@@ -82,13 +82,13 @@ export interface AuthDependencies {
   store: CredentialStore;
   browserAuthorize(origin: string, onAuthorizeUrl?: AuthorizeUrlReporter): Promise<BrowserLoginResult>;
   hostname: () => string;
-  resolveInstance?: typeof resolveInstance;
+  resolveInstanceSource?: typeof resolveInstanceSource;
 }
 
-export interface LoginOptions {
-  origin: string;
+export interface LoginOptions extends ResolvedAuthOptions {
   onBrowserOpen?: () => void;
   onAuthorizeUrl?: AuthorizeUrlReporter;
+  onConfiguredInstance?: (origin: string, configPath: string) => void;
 }
 
 export interface ResolvedAuthOptions {
@@ -333,7 +333,7 @@ export function createAuthDependencies(openBrowser: BrowserOpener = openMacOsBro
     api: new DropsApiClient(),
     store: new MacOsKeychainStore(),
     hostname: osHostname,
-    resolveInstance,
+    resolveInstanceSource,
     async browserAuthorize(origin, onAuthorizeUrl) {
       const pkce = createPkce();
       const result = await waitForBrowserAuthorization({
@@ -370,7 +370,11 @@ export async function login(
   options: LoginOptions,
   dependencies: AuthDependencies = createAuthDependencies(),
 ): Promise<LoginResult> {
-  const origin = canonicaliseInstance(options.origin);
+  const { origin, configPath } = await (dependencies.resolveInstanceSource ?? resolveInstanceSource)({
+    cwd: options.cwd,
+    explicit: options.instance,
+  });
+  if (configPath !== null) options.onConfiguredInstance?.(origin, configPath);
   await dependencies.api.discover(origin);
 
   const existing = await dependencies.store.get(origin);
@@ -413,7 +417,7 @@ export async function logout(
   options: ResolvedAuthOptions,
   dependencies: AuthDependencies = createAuthDependencies(),
 ): Promise<LogoutResult> {
-  const origin = await (dependencies.resolveInstance ?? resolveInstance)({
+  const { origin } = await (dependencies.resolveInstanceSource ?? resolveInstanceSource)({
     cwd: options.cwd,
     explicit: options.instance,
   });
@@ -426,7 +430,7 @@ export async function authStatus(
   options: ResolvedAuthOptions,
   dependencies: AuthDependencies = createAuthDependencies(),
 ): Promise<AuthStatusResult> {
-  const origin = await (dependencies.resolveInstance ?? resolveInstance)({
+  const { origin } = await (dependencies.resolveInstanceSource ?? resolveInstanceSource)({
     cwd: options.cwd,
     explicit: options.instance,
   });

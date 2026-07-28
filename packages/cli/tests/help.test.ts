@@ -27,8 +27,8 @@ describe('root help', () => {
     expect(result.stderr).toBe('');
     expect(result.stdout).toContain('Drops CLI');
     expect(result.stdout).toContain('Quick start:');
-    expect(result.stdout).toContain('drops login https://drops.example.com');
     expect(result.stdout).toContain('drops init --instance https://drops.example.com');
+    expect(result.stdout).toContain('drops login\n');
     expect(result.stdout).toContain('drops deploy ./dist --name preview');
     for (const command of ['login', 'init', 'deploy', 'list', 'auth status', 'logout']) {
       expect(result.stdout).toContain(command);
@@ -45,7 +45,16 @@ describe('root help', () => {
       expect(result.stderr).toBe('');
       const help = JSON.parse(result.stdout);
       expect(help).toMatchObject({ helpVersion: 1, cli: 'drops' });
-      expect(help.quickStart).toContain('drops deploy ./dist --name preview');
+      expect(help.quickStart).toEqual([
+        'drops init --instance https://drops.example.com',
+        'drops login',
+        'drops deploy ./dist --name preview',
+      ]);
+      expect(help.commands[0]).toMatchObject({
+        name: 'login',
+        usage: 'drops login [origin] [--instance <origin>] [--json]',
+        notes: expect.arrayContaining([expect.stringContaining('.drops.json')]),
+      });
       expect(help.commands.map((command: { name: string }) => command.name)).toEqual([
         'login',
         'init',

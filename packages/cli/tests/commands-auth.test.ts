@@ -1,6 +1,10 @@
 // ABOUTME: Verifies login, logout, and auth-status lifecycle ordering and stable CLI output.
 // ABOUTME: Uses in-memory API and credential seams so ordinary tests never mutate Keychain or open a browser.
-import { describe, expect, it, vi } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { DropsUser, RevokeCurrentTokenResult } from '../src/api.js';
 import {
@@ -24,6 +28,21 @@ const USER: DropsUser = { id: 'user-1', email: 'user@example.com', username: 'al
 function commandError(code: string, exitCode: 3 | 5 | 6): DropsCliError {
   return new DropsCliError({ code, message: `failed with drops_cli_secret`, instance: ORIGIN, exitCode });
 }
+
+const temporaryDirectories: string[] = [];
+
+async function temporaryRepository(instance: string | null): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'drops-cli-auth-'));
+  temporaryDirectories.push(directory);
+  if (instance !== null) {
+    await writeFile(join(directory, '.drops.json'), `${JSON.stringify({ instance })}\n`);
+  }
+  return directory;
+}
+
+afterEach(async () => {
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 
 function dependencies(options: {
   stored?: string | null;
@@ -91,11 +110,20 @@ function dependencies(options: {
 describe('login orchestration', () => {
   it('canonicalises, discovers, authorises, exchanges, labels, and stores in order', async () => {
     const fixture = dependencies();
+    const configured: string[] = [];
 
-    await expect(login({ origin: 'HTTPS://Drops.Example.com/' }, fixture.dependencies)).resolves.toEqual({
+    await expect(login(
+      {
+        cwd: '/repo',
+        instance: 'HTTPS://Drops.Example.com/',
+        onConfiguredInstance: (origin, path) => configured.push(`${origin} ${path}`),
+      },
+      fixture.dependencies,
+    )).resolves.toEqual({
       instance: ORIGIN,
       user: USER,
     });
+    expect(configured).toEqual([]);
     expect(fixture.order).toEqual([
       'discover',
       'get',
@@ -105,11 +133,34 @@ describe('login orchestration', () => {
     ]);
   });
 
+  it('authorises the repository instance and reports the file it came from', async () => {
+    const fixture = dependencies();
+    const cwd = await temporaryRepository(ORIGIN);
+    const configured: string[] = [];
+
+    await expect(login(
+      { cwd, onConfiguredInstance: (origin, path) => configured.push(`${origin} ${path}`) },
+      fixture.dependencies,
+    )).resolves.toEqual({ instance: ORIGIN, user: USER });
+    expect(configured).toEqual([`${ORIGIN} ${join(cwd, '.drops.json')}`]);
+  });
+
+  it('reports instance_required when neither an origin nor repository configuration exists', async () => {
+    const fixture = dependencies();
+    const cwd = await temporaryRepository(null);
+
+    await expect(login({ cwd }, fixture.dependencies)).rejects.toMatchObject({
+      code: 'instance_required',
+      exitCode: 2,
+    });
+    expect(fixture.order).toEqual([]);
+  });
+
   it.each([{ status: 'revoked' }, { status: 'already_invalid' }] as RevokeCurrentTokenResult[])(
     'revokes an existing credential before deleting it and opening the browser: $status',
     async (revoke) => {
       const fixture = dependencies({ stored: 'drops_cli_old', revoke });
-      await login({ origin: ORIGIN }, fixture.dependencies);
+      await login({ cwd: '/repo', instance: ORIGIN }, fixture.dependencies);
       expect(fixture.order.slice(0, 5)).toEqual(['discover', 'get', 'revoke:drops_cli_old', 'delete', 'browser']);
     },
   );
@@ -117,7 +168,7 @@ describe('login orchestration', () => {
   it('retains an existing credential and aborts when revocation is uncertain', async () => {
     const fixture = dependencies({ stored: 'drops_cli_old', revoke: commandError('network_error', 5) });
 
-    await expect(login({ origin: ORIGIN }, fixture.dependencies)).rejects.toMatchObject({
+    await expect(login({ cwd: '/repo', instance: ORIGIN }, fixture.dependencies)).rejects.toMatchObject({
       code: 'revocation_failed',
       exitCode: 3,
     });
@@ -128,7 +179,7 @@ describe('login orchestration', () => {
     const keychainFailure = new DropsCliError({ code: 'keychain_unavailable', message: 'Keychain unavailable', exitCode: 3 });
     const fixture = dependencies({ setError: keychainFailure });
 
-    await expect(login({ origin: ORIGIN }, fixture.dependencies)).rejects.toBe(keychainFailure);
+    await expect(login({ cwd: '/repo', instance: ORIGIN }, fixture.dependencies)).rejects.toBe(keychainFailure);
     expect(fixture.order.slice(-2)).toEqual(['set:drops_cli_new', 'revoke:drops_cli_new']);
   });
 
@@ -140,7 +191,7 @@ describe('login orchestration', () => {
 
     let error: unknown;
     try {
-      await login({ origin: ORIGIN }, fixture.dependencies);
+      await login({ cwd: '/repo', instance: ORIGIN }, fixture.dependencies);
     } catch (caught) {
       error = caught;
     }
@@ -226,13 +277,16 @@ describe('auth status orchestration', () => {
 
 describe('auth command parsing and output', () => {
   it('accepts the exact command forms and rejects ambiguous or extra origins', () => {
-    expect(parseLoginArguments([ORIGIN, '--json'])).toEqual({ origin: ORIGIN, json: true });
+    expect(parseLoginArguments([ORIGIN, '--json'])).toEqual({ instance: ORIGIN, json: true });
+    expect(parseLoginArguments(['--instance', ORIGIN])).toEqual({ instance: ORIGIN, json: false });
+    expect(parseLoginArguments([])).toEqual({ json: false });
     expect(parseLogoutArguments(['--instance', ORIGIN])).toEqual({ instance: ORIGIN, json: false });
     expect(parseAuthStatusArguments([ORIGIN])).toEqual({ instance: ORIGIN, json: false });
-    expect(() => parseLoginArguments([])).toThrow(expect.objectContaining({
-      message: 'Provide exactly one instance origin.',
-      guidance: expect.objectContaining({ usage: 'drops login <origin> [--json]' }),
+    expect(() => parseLoginArguments([ORIGIN, '--instance', ORIGIN])).toThrow(expect.objectContaining({
+      message: 'Choose either a positional origin or --instance, not both.',
+      guidance: expect.objectContaining({ usage: 'drops login [origin] [--instance <origin>] [--json]' }),
     }));
+    expect(() => parseLoginArguments([ORIGIN, 'https:\/\/other.example.com'])).toThrow(/at most one/);
     expect(() => parseLogoutArguments([ORIGIN, '--instance', ORIGIN])).toThrow(/either/);
     expect(() => parseAuthStatusArguments([ORIGIN, 'https:\/\/other.example.com'])).toThrow(/at most one/);
     expect(() => parseLogoutArguments(['--instance', ORIGIN, '--instance', ORIGIN])).toThrow(/at most once/);
@@ -258,6 +312,30 @@ describe('auth command parsing and output', () => {
     expect(stderr).toBe(`Authorising in browser…\nOpen this URL if the browser does not open:\n${AUTHORIZE_URL}\n`);
     expect(stdout).not.toContain('Authoris');
     expect(stdout).not.toContain(AUTHORIZE_URL);
+  });
+
+  it('names the repository instance and its file on stderr before opening the browser', async () => {
+    const fixture = dependencies();
+    const cwd = await temporaryRepository(ORIGIN);
+    let stdout = '';
+    let stderr = '';
+    const exitCode = await runCli(
+      ['login', '--json'],
+      {
+        cwd,
+        stdout: { write: (value) => (stdout += value) },
+        stderr: { write: (value) => (stderr += value) },
+      },
+      undefined,
+      { auth: fixture.dependencies },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe(`${JSON.stringify({ instance: ORIGIN, user: USER })}\n`);
+    expect(stderr).toBe(
+      `Using instance ${ORIGIN} from ${join(cwd, '.drops.json')}\n`
+      + `Authorising in browser…\nOpen this URL if the browser does not open:\n${AUTHORIZE_URL}\n`,
+    );
   });
 
   it('emits exact logout and status JSON plus readable human status', async () => {

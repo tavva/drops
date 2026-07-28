@@ -40,8 +40,8 @@ options, examples, and notes. Actionable errors also expose `usage`, `hint`,
 and `examples` fields in JSON mode.
 
 ```bash
-drops login https://drops.example.com
 drops init --instance https://drops.example.com
+drops login
 drops deploy ./dist --name preview --json
 drops list
 drops list preview
@@ -51,7 +51,7 @@ drops logout
 
 `drops list` shows the drops you own on the selected instance; add a drop name to list that drop's files with sizes.
 
-Commit the generated `.drops.json` if you want the repository to share its default instance. It contains only the instance origin, never credentials. Each deploy requires an explicit `--name`; use `--instance` to override the repository default when working with another independently authenticated instance.
+Commit the generated `.drops.json` if you want the repository to share its default instance. It contains only the instance origin, never credentials. Every instance-selecting command, including `drops login`, uses the nearest `.drops.json` when you give no origin, and `drops login` names the origin and the file it came from before opening the browser. Each deploy requires an explicit `--name`; use `--instance` to override the repository default when working with another independently authenticated instance.
 
 `drops logout` revokes the local authorisation. You can also revoke active CLI access from the Drops dashboard. The CLI talks only to the authenticated Drops API and never receives direct Postgres or R2 credentials.
 
