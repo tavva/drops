@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { and, asc, eq, gt, isNull, lt, or, sql } from 'drizzle-orm';
 import { db } from '@/db';
+import { isUuid } from '@/lib/uuid';
 import { cliAuthorizationCodes, cliTokens, users } from '@/db/schema';
 
 export const CLI_AUTHORIZATION_CODE_TTL_MS = 5 * 60_000;
@@ -132,6 +133,19 @@ export async function lookupCliToken(token: string): Promise<{
       ),
     ));
   return { id: found.token.id, user };
+}
+
+// Only use this identity lookup after verifying a signed, host-bound drop cookie or handoff.
+// A token id is not a bearer credential and must never authenticate an API request.
+export async function lookupCliDropSession(sessionId: string) {
+  const id = sessionId.slice('cli:'.length);
+  if (!sessionId.startsWith('cli:') || !isUuid(id)) return null;
+  const [found] = await db.select({ user: users }).from(cliTokens)
+    .innerJoin(users, eq(cliTokens.userId, users.id))
+    .where(and(eq(cliTokens.id, id), isNull(cliTokens.revokedAt)))
+    .limit(1);
+  const user = asCompletedMember(found?.user);
+  return user ? { user } : null;
 }
 
 export async function revokeCliToken(tokenId: string): Promise<boolean> {

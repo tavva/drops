@@ -216,7 +216,7 @@ test('built executable handles safe local commands without injected dependencies
   }
 });
 
-test('login, configure, deploy, serve, select instances, and revoke CLI access', async ({ request }) => {
+test('login, configure, deploy, serve, select instances, and revoke CLI access', async ({ request, browser }) => {
   const temp = await mkdtemp(join(tmpdir(), 'drops-cli-e2e-'));
   const repo = join(temp, 'repo');
   const credentials = join(temp, 'credentials.json');
@@ -330,6 +330,29 @@ test('login, configure, deploy, serve, select instances, and revoke CLI access',
     expect((files.files as Array<{ path: string; size: number }>).some(
       (file) => file.path.endsWith('index.html') && file.size > 0,
     )).toBe(true);
+
+    await db.update(drops).set({ viewMode: 'emails', includeDomain: false });
+    const viewed = await runCli(['view', 'cli-preview', 'asset.txt', '--json'], childOptions);
+    expect(viewed.exitCode).toBe(0);
+    expect(parseJson(viewed)).toMatchObject({ path: 'asset.txt', encoding: 'utf8', content: 'from a real zip\n' });
+
+    const opened = await runCli(['open', 'cli-preview', '--json'], childOptions);
+    expect(opened.exitCode).toBe(0);
+    const openedResult = parseJson(opened);
+    expect(await readFile(openedUrl, 'utf8')).toBe(openedResult.openUrl);
+    const dropBrowser = await browser.newContext();
+    try {
+      const page = await dropBrowser.newPage();
+      await page.goto(openedResult.openUrl as string);
+      await expect(page.getByRole('heading', { name: 'CLI fixture' })).toBeVisible();
+      await page.goto(new URL('asset.txt', deployedUrl).href);
+      expect(await page.textContent('body')).toContain('from a real zip');
+      const cookies = await dropBrowser.cookies();
+      expect(cookies.some((cookie) => cookie.name === 'drops_drop_session')).toBe(true);
+      expect(cookies.some((cookie) => cookie.name === 'drops_session')).toBe(false);
+    } finally {
+      await dropBrowser.close();
+    }
 
     const listMissing = await runCli(['list', 'no-such-drop', '--json'], childOptions);
     expect(listMissing.exitCode).toBe(4);

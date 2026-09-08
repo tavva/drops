@@ -3,7 +3,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { verifyHandoff } from '@/lib/handoff';
 import { signDropCookie, dropCookieOptions } from '@/lib/cookies';
-import { getSessionUser } from '@/services/sessions';
+import { getDropSessionUser } from '@/services/dropSessions';
 import { findByUsername } from '@/services/users';
 import { findByOwnerAndName } from '@/services/drops';
 import { canView } from '@/services/permissions';
@@ -13,12 +13,14 @@ import { config } from '@/config';
 
 function sameHostPath(raw: string | undefined): string {
   if (!raw) return '/';
-  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+  if (raw.startsWith('/') && !raw.startsWith('//') && !/[\\\x00-\x20\x7f]/u.test(raw)) return raw;
   return '/';
 }
 
 export const bootstrapRoute: FastifyPluginAsync = async (app) => {
   app.get('/auth/bootstrap', { config: { skipCsrf: true, ...tightAuthLimit } }, async (req, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    reply.header('Referrer-Policy', 'no-referrer');
     const parsed = req.dropHost;
     if (!parsed) return reply.code(404).send('not_found');
 
@@ -27,7 +29,7 @@ export const bootstrapRoute: FastifyPluginAsync = async (app) => {
     const result = verifyHandoff(token, parsed.hostname, config.SESSION_SECRET);
     if (!result.ok) return reply.code(400).send(`bad_token:${result.reason}`);
 
-    const found = await getSessionUser(result.sessionId);
+    const found = await getDropSessionUser(result.sessionId);
     if (!found) return reply.code(400).send('session_missing');
 
     const owner = await findByUsername(parsed.username);

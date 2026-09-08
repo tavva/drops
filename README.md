@@ -85,7 +85,7 @@ CONTENT_ORIGIN=http://content.localtest.me:3000
 
 Paste the cookies `pnpm dev:seed` prints into each origin's cookie jar.
 
-## Command-line uploads
+## Command-line uploads and viewing
 
 Install the standalone CLI with pnpm:
 
@@ -107,9 +107,18 @@ Authenticate in your browser, configure the current repository, and deploy a bui
 drops login https://drops.example.com
 drops init --instance https://drops.example.com
 drops deploy ./dist --name preview --json
+drops view preview
+drops open preview
 drops auth status --json
 drops logout
 ```
+
+Use `drops view <name> [path]` to read a drop’s entry point or a particular file
+in the terminal, or `drops open <name> [path]` to open it in an authenticated
+browser. Both use your saved CLI login and support `owner/name` for shared drops.
+For headless browser access, `drops open <name> --no-browser` prints a private,
+60-second URL to open locally. See the [CLI guide](packages/cli/README.md#use)
+for JSON output and binary-file support.
 
 The installed CLI is self-documenting. Humans can start with root or focused
 help, while agents can request the complete versioned command catalogue as one

@@ -57,6 +57,29 @@ export interface DropsFilesResult {
   files: DropsFileEntry[];
 }
 
+export interface DropsViewResult {
+  instance: string;
+  name: string;
+  path: string;
+  contentType: string;
+  encoding: 'utf8' | 'base64';
+  content: string;
+}
+
+export interface DropsOpenResult {
+  instance: string;
+  name: string;
+  url: string;
+  openUrl: string;
+  expiresIn: number;
+}
+
+export interface DropsViewTarget {
+  name: string;
+  owner?: string;
+  path?: string;
+}
+
 export interface DropsApiErrorBody {
   error: {
     code: string;
@@ -367,6 +390,87 @@ export class DropsApiClient {
     const result = await jsonOrNull(response);
     if (!isFilesResult(result)) throw serverError(origin);
     return result;
+  }
+
+  private viewingUrl(origin: string, target: DropsViewTarget, action: 'content' | 'open'): string {
+    const url = new URL(`/api/v1/drops/${encodeURIComponent(target.name)}/${action}`, origin);
+    if (target.owner !== undefined) url.searchParams.set('owner', target.owner);
+    if (target.path !== undefined) url.searchParams.set('path', target.path);
+    return url.href;
+  }
+
+  private async checkViewingResponse(response: Response, origin: string, token: string): Promise<void> {
+    if (response.status === 200) return;
+    if (response.status === 404 || response.status === 400) {
+      const body = parseStructuredError(await jsonOrNull(response), [token]);
+      if (body) throw new DropsCliError({ ...body, instance: origin, exitCode: 4 });
+    }
+    await this.throwForResponse(response, origin, [token]);
+  }
+
+  async viewDrop(origin: string, token: string, target: DropsViewTarget): Promise<DropsViewResult> {
+    const response = await this.bearerRequest(origin, token, this.viewingUrl(origin, target, 'content'), { method: 'GET' });
+    await this.checkViewingResponse(response, origin, token);
+    const limit = 10 * 1024 * 1024;
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    const tooLarge = () => new DropsCliError({
+      code: 'file_too_large', message: 'Terminal viewing supports files up to 10 MiB. Use drops open to view this drop.',
+      instance: origin, exitCode: 4,
+    });
+    if (Number(response.headers.get('content-length')) > limit) {
+      await response.body?.cancel();
+      throw tooLarge();
+    }
+    try {
+      if (response.body) {
+        for await (const chunk of response.body) {
+          size += chunk.byteLength;
+          if (size > limit) throw tooLarge();
+          chunks.push(chunk);
+        }
+      }
+    } catch (error) {
+      if (error instanceof DropsCliError) throw error;
+      throw networkError(origin);
+    }
+    const bytes = Buffer.concat(chunks);
+    let content: string;
+    let encoding: 'utf8' | 'base64' = 'utf8';
+    try {
+      content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      // Escape sequences and binary control bytes are unsafe to print to a terminal.
+      if (/[\x00-\x08\x0b-\x1f\x7f-\x9f]/u.test(content)) throw new Error('binary');
+    } catch {
+      encoding = 'base64';
+      content = bytes.toString('base64');
+    }
+    let path: string;
+    try {
+      const encodedPath = response.headers.get('x-drops-path');
+      path = encodedPath === null ? target.path ?? '' : decodeURIComponent(encodedPath);
+    }
+    catch { throw serverError(origin); }
+    return { instance: origin, name: target.name, path,
+      contentType: response.headers.get('x-drops-content-type') ?? 'application/octet-stream', encoding, content };
+  }
+
+  async openDrop(origin: string, token: string, target: DropsViewTarget): Promise<DropsOpenResult> {
+    const response = await this.bearerRequest(origin, token, this.viewingUrl(origin, target, 'open'), { method: 'POST' });
+    await this.checkViewingResponse(response, origin, token);
+    const result = await jsonOrNull(response);
+    if (!isRecord(result) || result.instance !== origin || result.name !== target.name ||
+      typeof result.url !== 'string' || typeof result.openUrl !== 'string' || result.expiresIn !== 60) throw serverError(origin);
+    try {
+      const url = new URL(result.url);
+      const open = new URL(result.openUrl);
+      if (!['http:', 'https:'].includes(url.protocol) ||
+        (new URL(origin).protocol === 'https:' && url.protocol !== 'https:') ||
+        url.username || url.password || open.username || open.password ||
+        open.origin !== url.origin || open.pathname !== '/auth/bootstrap' ||
+        !open.searchParams.get('token') || open.searchParams.get('next') !== url.pathname) throw new Error('invalid URL');
+    } catch { throw serverError(origin); }
+    return { instance: origin, name: target.name, url: result.url, openUrl: result.openUrl, expiresIn: result.expiresIn };
   }
 
   async revokeCurrentToken(origin: string, token: string): Promise<RevokeCurrentTokenResult> {

@@ -17,7 +17,7 @@ export interface CommandHelp {
   notes: string[];
 }
 
-export type HelpCommandName = 'login' | 'init' | 'deploy' | 'list' | 'auth status' | 'logout';
+export type HelpCommandName = 'login' | 'init' | 'deploy' | 'list' | 'view' | 'open' | 'auth status' | 'logout';
 
 export interface RootHelpValue extends Record<string, unknown> {
   helpVersion: 1;
@@ -123,6 +123,46 @@ const COMMANDS: CommandHelp[] = [
     notes: [
       'Only drops you own are listed.',
       'Run drops login <origin> before listing an instance.',
+    ],
+  },
+  {
+    name: 'view',
+    summary: 'Read an existing drop’s entry point or a specific file in the terminal.',
+    usage: 'drops view <name|owner/name> [path] [--instance <origin>] [--json]',
+    arguments: [
+      { syntax: '<name|owner/name>', description: 'Your drop name, or an owner/name shared with you.' },
+      { syntax: '[path]', description: 'Relative file or directory path; defaults to the drop’s entry point.' },
+    ],
+    options: [
+      { syntax: '--instance <origin>', description: 'Override the nearest repository .drops.json instance.' },
+      { syntax: '--json', description: 'Return content and metadata; binary content is base64 encoded.' },
+      { syntax: '--help', description: 'Show this command help.' },
+    ],
+    examples: ['drops view preview', 'drops view preview assets/app.js', 'drops view alice/report --json'],
+    notes: [
+      'Uses the saved CLI login and the same viewing permissions as the browser.',
+      'Text is printed as source. Files up to 10 MiB are supported; use drops open for larger files.',
+    ],
+  },
+  {
+    name: 'open',
+    summary: 'Open an existing drop in a browser using your CLI login.',
+    usage: 'drops open <name|owner/name> [path] [--instance <origin>] [--no-browser] [--json]',
+    arguments: [
+      { syntax: '<name|owner/name>', description: 'Your drop name, or an owner/name shared with you.' },
+      { syntax: '[path]', description: 'Relative file or directory path; defaults to the drop root.' },
+    ],
+    options: [
+      { syntax: '--instance <origin>', description: 'Override the nearest repository .drops.json instance.' },
+      { syntax: '--no-browser', description: 'Return a private browser URL without launching a browser.' },
+      { syntax: '--json', description: 'Return the canonical URL, private openUrl, and its lifetime.' },
+      { syntax: '--help', description: 'Show this command help.' },
+    ],
+    examples: ['drops open preview', 'drops open alice/report', 'drops open preview --no-browser --json'],
+    notes: [
+      'The private openUrl grants access as you to this drop and must be opened within 60 seconds. Do not share it.',
+      'On a headless machine, copy the private URL into your local browser; no SSH tunnel is needed.',
+      'Browser access is scoped to this drop and ends when the CLI credential is revoked.',
     ],
   },
   {

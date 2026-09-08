@@ -31,6 +31,8 @@ import {
 import { createLifecycleRegistry, type LifecycleRegistry } from './lifecycle.js';
 import { createListDependencies, type ListDependencies } from './list.js';
 import { createOutput, type TextWriter } from './output.js';
+import { parseViewArguments } from './commands/view.js';
+import { createViewDependencies, view, open, type ViewDependencies } from './view.js';
 
 export interface CliRuntime {
   cwd: string;
@@ -42,6 +44,7 @@ export interface CliDependencies {
   deploy?: DeployDependencies;
   auth?: AuthDependencies;
   list?: ListDependencies;
+  view?: ViewDependencies;
 }
 
 interface CommandResult {
@@ -144,6 +147,16 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
     return { value: { ...result }, human };
   }
 
+  if (command === 'view' || command === 'open') {
+    const options = { ...parseViewArguments(command, argv.slice(1)), cwd };
+    if (command === 'view') {
+      const result = await view(options, dependencies.view);
+      return { value: { ...result }, human: result.content };
+    }
+    const result = await open(options, diagnostic, dependencies.view);
+    return { value: { ...result }, human: result.url };
+  }
+
   if (command !== 'init') {
     const shown = command === 'help'
       ? argv.filter((argument) => argument !== '--json').slice(1).join(' ') || 'help'
@@ -212,5 +225,6 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     deploy: createDeployDependencies(lifecycle.register),
     auth: createAuthDependencies(),
     list: createListDependencies(),
+    view: createViewDependencies(),
   });
 }

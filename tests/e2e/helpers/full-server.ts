@@ -6,6 +6,7 @@ import { registerCsrf } from '../../../src/middleware/csrf';
 import { registerRateLimit } from '../../../src/middleware/rateLimit';
 import { registerAppHostRoutes } from '../../../src/routes/appHost';
 import { dropServeRoute } from '../../../src/routes/content/dropServe';
+import { bootstrapRoute } from '../../../src/routes/auth/bootstrap';
 import { config } from '../../../src/config';
 
 const app = await buildServer();
@@ -14,7 +15,10 @@ await app.register(onAppHost(async (server) => {
   await registerCsrf(server);
   await registerAppHostRoutes(server);
 }));
-await app.register(onDropHost(dropServeRoute));
+await app.register(onDropHost(async (server) => {
+  await server.register(bootstrapRoute);
+  await server.register(dropServeRoute);
+}));
 await app.listen({ host: '127.0.0.1', port: config.PORT });
 process.stdout.write('READY\n');
 

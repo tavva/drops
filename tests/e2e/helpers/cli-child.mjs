@@ -10,6 +10,7 @@ import { createAuthDependencies } from '../../../packages/cli/dist/auth.js';
 import { createDeployDependencies } from '../../../packages/cli/dist/deploy.js';
 import { runCli } from '../../../packages/cli/dist/index.js';
 import { createListDependencies } from '../../../packages/cli/dist/list.js';
+import { createViewDependencies } from '../../../packages/cli/dist/view.js';
 import { createLifecycleRegistry } from '../../../packages/cli/dist/lifecycle.js';
 
 const credentialsPath = process.env.DROPS_CLI_TEST_CREDENTIALS;
@@ -63,13 +64,14 @@ const lifecycle = createLifecycleRegistry();
 const auth = { ...createAuthDependencies(openBrowser), api: new DropsApiClient(), store };
 const deploy = { ...createDeployDependencies(lifecycle.register), api: new DropsApiClient(), store };
 const list = { ...createListDependencies(), api: new DropsApiClient(), store };
+const view = { ...createViewDependencies(), api: new DropsApiClient(), store, openBrowser };
 
 try {
   process.exitCode = await runCli(process.argv.slice(2), {
     cwd: process.cwd(),
     stdout: process.stdout,
     stderr: process.stderr,
-  }, undefined, { auth, deploy, list });
+  }, undefined, { auth, deploy, list, view });
 } finally {
   await lifecycle.cleanup();
 }

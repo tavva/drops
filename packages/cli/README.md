@@ -1,6 +1,6 @@
 # @tavva/drops-cli
 
-The command-line client for publishing local files, folders, and zip archives to a Drops instance.
+The command-line client for publishing and viewing files, folders, and zip archives to a Drops instance.
 
 ## Install
 
@@ -40,7 +40,7 @@ Approval must complete within five minutes. The callback stays bound to
 `127.0.0.1`; no public callback port or desktop keyring is needed on the server.
 The tunnel carries the local browser's callback to the server via
 [SSH local forwarding](https://man.openbsd.org/ssh#L).
-Subsequent deploy, list, status, and logout commands need no browser or tunnel.
+Subsequent deploy, list, view, status, and logout commands need no browser or tunnel.
 
 Linux stores unencrypted bearer credentials in
 `$XDG_CONFIG_HOME/drops/credentials/`, or `~/.config/drops/credentials/` when
@@ -73,11 +73,31 @@ drops login
 drops deploy ./dist --name preview --json
 drops list
 drops list preview
+drops view preview
+drops view preview assets/app.js
+drops open preview
 drops auth status --json
 drops logout
 ```
 
 `drops list` shows the drops you own on the selected instance; add a drop name to list that drop's files with sizes.
+
+`drops view <name> [path]` reads a drop’s entry point or a particular file in the
+terminal. HTML is displayed as source. Use `--json` for content and metadata;
+binary files are base64 encoded. Terminal viewing supports files up to 10 MiB.
+Use `owner/name` to read a drop shared with you, for example
+`drops view alice/report notes.txt`.
+
+`drops open <name> [path]` opens the drop in your browser using your saved CLI
+login. It prints a private URL that must be opened within 60 seconds. On a
+headless machine, copy this URL into a local browser; no SSH tunnel is needed.
+Use `--no-browser` to skip browser launch, or `--no-browser --json` to retrieve
+`openUrl` programmatically. This private URL grants access as you to the selected
+drop; do not share it. Share the ordinary drop URL instead.
+
+Both commands use the same viewing permissions as the website and accept
+`--instance`. Browser access is scoped to the selected drop; revoking the CLI
+credential also invalidates the browser access it granted.
 
 Commit the generated `.drops.json` if you want the repository to share its default instance. It contains only the instance origin, never credentials. Every instance-selecting command, including `drops login`, uses the nearest `.drops.json` when you give no origin, and `drops login` names the origin and the file it came from before opening the browser. Each deploy requires an explicit `--name`; use `--instance` to override the repository default when working with another independently authenticated instance.
 

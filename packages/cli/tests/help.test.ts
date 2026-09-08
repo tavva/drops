@@ -30,7 +30,7 @@ describe('root help', () => {
     expect(result.stdout).toContain('drops init --instance https://drops.example.com');
     expect(result.stdout).toContain('drops login\n');
     expect(result.stdout).toContain('drops deploy ./dist --name preview');
-    for (const command of ['login', 'init', 'deploy', 'list', 'auth status', 'logout']) {
+    for (const command of ['login', 'init', 'deploy', 'list', 'view', 'open', 'auth status', 'logout']) {
       expect(result.stdout).toContain(command);
     }
     expect(result.stdout).toContain('drops help --json');
@@ -60,6 +60,8 @@ describe('root help', () => {
         'init',
         'deploy',
         'list',
+        'view',
+        'open',
         'auth status',
         'logout',
       ]);
@@ -84,6 +86,10 @@ describe('command help', () => {
     [['auth', 'status', '--help'], 'auth status'],
     [['help', 'auth', 'status'], 'auth status'],
     [['list', '--help'], 'list'],
+    [['view', '--help'], 'view'],
+    [['help', 'view'], 'view'],
+    [['open', '--help'], 'open'],
+    [['help', 'open'], 'open'],
     [['help', 'list'], 'list'],
     [['login', '--help'], 'login'],
     [['init', '--help'], 'init'],

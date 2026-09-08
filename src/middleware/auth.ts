@@ -4,6 +4,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { getSessionUser, rollIfStale } from '@/services/sessions';
 import { verifyCookie, appCookieOptions, verifyDropCookie, dropCookieOptions } from '@/lib/cookies';
 import { config } from '@/config';
+import { getDropSessionUser, rollDropSession } from '@/services/dropSessions';
 
 export const APP_SESSION_COOKIE = 'drops_session';
 export const DROP_SESSION_COOKIE = 'drops_drop_session';
@@ -80,12 +81,12 @@ export async function requireDropSession(req: FastifyRequest, reply: FastifyRepl
   const raw = req.cookies[DROP_SESSION_COOKIE];
   const sid = raw ? verifyDropCookie(raw, parsed.hostname, config.SESSION_SECRET) : null;
   if (!sid) return bounceToDropBootstrap(reply, parsed.hostname, req.raw.url ?? '/');
-  const found = await getSessionUser(sid);
+  const found = await getDropSessionUser(sid);
   if (!found) {
     reply.clearCookie(DROP_SESSION_COOKIE, dropCookieOptions(parsed.hostname));
     return bounceToDropBootstrap(reply, parsed.hostname, req.raw.url ?? '/');
   }
-  await rollIfStale(sid);
+  await rollDropSession(sid);
   req.session = { id: sid };
   req.user = {
     id: found.user.id,
