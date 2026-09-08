@@ -4,7 +4,7 @@
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
-import { createAuthDependencies, type AuthDependencies } from './auth.js';
+import { browserAuthorizationInstructions, createAuthDependencies, type AuthDependencies } from './auth.js';
 import { parseAuthStatusArguments, runAuthStatusCommand } from './commands/authStatus.js';
 import { parseDeployArguments, runDeployCommand } from './commands/deploy.js';
 import { runInitCommand } from './commands/init.js';
@@ -95,7 +95,7 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
         cwd,
         onConfiguredInstance: (origin, configPath) => diagnostic(`Using instance ${origin} from ${configPath}`),
         onBrowserOpen: () => diagnostic('Authorising in browser…'),
-        onAuthorizeUrl: (url) => diagnostic(`Open this URL if the browser does not open:\n${url}`),
+        onAuthorizeUrl: (url) => diagnostic(browserAuthorizationInstructions(url)),
       },
       dependencies.auth,
     );

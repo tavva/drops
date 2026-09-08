@@ -117,7 +117,7 @@ describe('deploy', () => {
     await expect(deploy({ cwd: '/repo', path: 'dist', name: 'sample-site' }, setup.deps)).rejects.toEqual(
       expect.objectContaining({
         code: 'not_authenticated',
-        message: 'This Mac is not authenticated to https://drops.example.com.',
+        message: 'This device is not authenticated to https://drops.example.com.',
         instance: 'https://drops.example.com',
         guidance: expect.objectContaining({
           hint: 'Authenticate this exact instance before deploying.',

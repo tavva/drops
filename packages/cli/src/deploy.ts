@@ -7,7 +7,8 @@ import { finished } from 'node:stream/promises';
 import { DropsApiClient, type DropsDeploymentResult } from './api.js';
 import { invalidDropNameError, notAuthenticatedError } from './errors.js';
 import { resolveInstance } from './instance.js';
-import { MacOsKeychainStore, type CredentialStore } from './keychain.js';
+import { createCredentialStore } from './credentials.js';
+import type { CredentialStore } from './keychain.js';
 import type { LifecycleRegistrar } from './lifecycle.js';
 import { packageSource, type PackagedSource, type PackageSourceOptions } from './packageSource.js';
 
@@ -47,7 +48,7 @@ export interface DeployDependencies {
 export function createDeployDependencies(registerCleanup?: LifecycleRegistrar): DeployDependencies {
   return {
     api: new DropsApiClient(),
-    store: new MacOsKeychainStore(),
+    store: createCredentialStore(),
     packageSource,
     createReadStream,
     resolveInstance,

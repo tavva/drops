@@ -125,16 +125,16 @@ CLI errors include an exact usage string, a recovery hint, and runnable
 examples when those fields can help. With `--json`, that guidance stays inside
 the single error object written to stdout.
 
-`drops login` is currently macOS-only because credentials are stored in Keychain. The bearer token never belongs in the repository: `.drops.json` contains only the instance origin, is safe to commit, and is discovered from the current directory or its parents. Always provide an explicit drop name with `--name`; deploying the same name replaces that drop atomically.
+`drops login` supports macOS (Keychain) and Linux (owner-only credential files), including headless servers. See the [headless Linux login instructions](packages/cli/README.md#headless-linux) for browser approval over an SSH tunnel. The bearer token never belongs in the repository: `.drops.json` contains only the instance origin, is safe to commit, and is discovered from the current directory or its parents. Always provide an explicit drop name with `--name`; deploying the same name replaces that drop atomically.
 
 Login always prints the complete browser-authorisation URL to stderr before
-attempting to open it, providing a copy-and-paste fallback when macOS does not
+attempting to open it, providing a copy-and-paste fallback when the system does not
 show a browser window. JSON mode keeps this instruction on stderr so stdout
 remains exactly one machine-readable result.
 
 Credentials are independent and keyed by each instance's exact origin. A repository's `.drops.json` selects its default, while `--instance https://other.example.com` overrides that default for commands that accept it. Sign in separately to each instance.
 
-`drops logout` revokes the current credential. Active CLI authorisations also appear under **CLI access** on the dashboard, where they can be revoked remotely. A revoked credential is removed from the local Keychain the next time `drops auth status` sees it is invalid. The CLI uses the authenticated Drops API; it does not receive or connect directly to R2 or Postgres.
+`drops logout` revokes the current credential. Active CLI authorisations also appear under **CLI access** on the dashboard, where they can be revoked remotely. A revoked credential is removed from the local credential store the next time `drops auth status` sees it is invalid. The CLI uses the authenticated Drops API; it does not receive or connect directly to R2 or Postgres.
 
 ## Tests
 

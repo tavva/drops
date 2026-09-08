@@ -15,7 +15,8 @@ import {
 } from './api.js';
 import { DropsCliError } from './errors.js';
 import { resolveInstanceSource } from './instance.js';
-import { MacOsKeychainStore, type CredentialStore } from './keychain.js';
+import { createCredentialStore } from './credentials.js';
+import type { CredentialStore } from './keychain.js';
 
 const LOOPBACK_HOST = '127.0.0.1';
 const MIN_DYNAMIC_PORT = 49_152;
@@ -143,24 +144,42 @@ export function createDeviceLabel(hostname: () => string): string {
   return Array.from(`Drops CLI on ${suffix}`).slice(0, 100).join('');
 }
 
-export const openMacOsBrowser = (
+export const openSystemBrowser = (
   url: string,
   spawnBrowser: BrowserSpawn = spawn as BrowserSpawn,
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> =>
   new Promise((resolve, reject) => {
-    let child: SpawnedBrowser;
-    try {
-      child = spawnBrowser('/usr/bin/open', [url], { detached: true, stdio: 'ignore' });
-    } catch {
-      reject(denied('Could not open the browser for authorisation'));
+    if (platform === 'linux' && (env.SSH_CONNECTION || (!env.DISPLAY && !env.WAYLAND_DISPLAY))) {
+      resolve();
       return;
     }
-    child.once('error', () => reject(denied('Could not open the browser for authorisation')));
+    let child: SpawnedBrowser;
+    try {
+      child = spawnBrowser(platform === 'darwin' ? '/usr/bin/open' : '/usr/bin/xdg-open', [url], { detached: true, stdio: 'ignore' });
+    } catch {
+      if (platform === 'linux') resolve();
+      else reject(denied('Could not open the browser for authorisation'));
+      return;
+    }
+    child.once('error', () => {
+      // The authorisation URL is printed first, so Linux without a desktop can continue manually.
+      if (platform === 'linux') resolve();
+      else reject(denied('Could not open the browser for authorisation'));
+    });
     child.once('spawn', () => {
       child.unref?.();
       resolve();
     });
   });
+
+export function browserAuthorizationInstructions(url: string, platform: NodeJS.Platform = process.platform): string {
+  const instructions = `Open this URL if the browser does not open:\n${url}`;
+  if (platform !== 'linux') return instructions;
+  const port = new URL(new URL(url).searchParams.get('redirect_uri')!).port;
+  return `${instructions}\n\nIf this CLI is running on a remote server, first run this in another terminal on your local computer (replace user@server):\nssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:${port}:127.0.0.1:${port} user@server\nThen open the URL in your local browser. Keep the tunnel open until login completes.`;
+}
 
 function defaultPortCandidates(): number[] {
   const ports = new Set<number>();
@@ -188,7 +207,7 @@ async function listenOnCandidate(server: Server, port: number): Promise<boolean>
 export async function waitForBrowserAuthorization(
   options: WaitForBrowserAuthorizationOptions,
 ): Promise<BrowserAuthorizationResult> {
-  const opener = options.openBrowser ?? openMacOsBrowser;
+  const opener = options.openBrowser ?? openSystemBrowser;
   const candidates = options.portCandidates ?? defaultPortCandidates();
   if (
     candidates.length === 0 ||
@@ -328,10 +347,10 @@ export async function waitForBrowserAuthorization(
   return await result;
 }
 
-export function createAuthDependencies(openBrowser: BrowserOpener = openMacOsBrowser): AuthDependencies {
+export function createAuthDependencies(openBrowser: BrowserOpener = openSystemBrowser): AuthDependencies {
   return {
     api: new DropsApiClient(),
-    store: new MacOsKeychainStore(),
+    store: createCredentialStore(),
     hostname: osHostname,
     resolveInstanceSource,
     async browserAuthorize(origin, onAuthorizeUrl) {
@@ -396,7 +415,7 @@ export async function login(
       await dependencies.api.revokeCurrentToken(origin, issued.token);
     } catch {
       throw new DropsCliError({
-        code: 'keychain_unavailable',
+        code: 'credential_store_unavailable',
         message: `Could not store the credential or confirm cleanup. Revoke it from the dashboard at ${origin}`,
         instance: origin,
         exitCode: 3,
@@ -404,8 +423,8 @@ export async function login(
     }
     if (storageError instanceof DropsCliError) throw storageError;
     throw new DropsCliError({
-      code: 'keychain_unavailable',
-      message: 'macOS Keychain is unavailable',
+      code: 'credential_store_unavailable',
+      message: 'The local credential store is unavailable',
       instance: origin,
       exitCode: 3,
     });

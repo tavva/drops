@@ -19,10 +19,38 @@ pnpm --dir packages/cli exec pnpm link --global
 Do not use `pnpm --dir packages/cli link --global`: pnpm links the workspace
 root package for that command instead of the CLI package.
 
-The CLI requires Node.js 22 or newer and currently supports macOS credential storage. Browser-approved bearer credentials are stored in macOS Keychain, keyed by the instance's exact origin.
+The CLI requires Node.js 22 or newer and supports macOS and Linux, including headless Linux servers. Credentials are keyed by the instance's exact origin. macOS uses Keychain; Linux uses local credential files (see below).
 
 `drops login` prints its complete authorisation URL before trying to open the
 browser, so you can copy and paste the URL if no window appears.
+
+## Headless Linux
+
+Run `drops login --instance https://drops.example.com` on the server. The CLI
+prints an authorisation URL and an SSH forwarding command containing the callback
+port selected for this login.
+
+1. Leave login running on the server.
+2. Run the printed SSH command in another terminal on your local computer,
+   replacing `user@server` with your SSH destination. Keep that tunnel running.
+3. Open the printed authorisation URL in your local browser and approve access.
+4. Once the server reports successful login, close the SSH tunnel with Ctrl-C.
+
+Approval must complete within five minutes. The callback stays bound to
+`127.0.0.1`; no public callback port or desktop keyring is needed on the server.
+The tunnel carries the local browser's callback to the server via
+[SSH local forwarding](https://man.openbsd.org/ssh#L).
+Subsequent deploy, list, status, and logout commands need no browser or tunnel.
+
+Linux stores unencrypted bearer credentials in
+`$XDG_CONFIG_HOME/drops/credentials/`, or `~/.config/drops/credentials/` when
+`XDG_CONFIG_HOME` is unset or not absolute. The credential directory has mode
+`0700` and each file has mode `0600`. The CLI rejects unsafe directory/file
+permissions and symlink credential files when reading. These permissions protect
+against other ordinary users, but the account owner and root can read the tokens.
+Use the same Unix account for login and deployments; for containers, persist this
+private directory if credentials must survive recreation. Credentials never go
+in the repository's `.drops.json`.
 
 ## Use
 

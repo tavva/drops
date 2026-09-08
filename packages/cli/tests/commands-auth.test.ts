@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { DropsUser, RevokeCurrentTokenResult } from '../src/api.js';
 import {
   authStatus,
+  browserAuthorizationInstructions,
   login,
   logout,
   type AuthApi,
@@ -22,7 +23,7 @@ import { runCli } from '../src/index.js';
 import type { CredentialStore } from '../src/keychain.js';
 
 const ORIGIN = 'https://drops.example.com';
-const AUTHORIZE_URL = `${ORIGIN}/app/cli/authorize?state=copy-me`;
+const AUTHORIZE_URL = `${ORIGIN}/app/cli/authorize?state=copy-me&redirect_uri=http%3A%2F%2F127.0.0.1%3A54321%2Fcallback`;
 const USER: DropsUser = { id: 'user-1', email: 'user@example.com', username: 'alice' };
 
 function commandError(code: string, exitCode: 3 | 5 | 6): DropsCliError {
@@ -195,7 +196,7 @@ describe('login orchestration', () => {
     } catch (caught) {
       error = caught;
     }
-    expect(error).toMatchObject({ code: 'keychain_unavailable', exitCode: 3 });
+    expect(error).toMatchObject({ code: 'credential_store_unavailable', exitCode: 3 });
     expect(String(error)).toContain('dashboard');
     expect(JSON.stringify(error)).not.toContain('drops_cli_new');
   });
@@ -309,7 +310,7 @@ describe('auth command parsing and output', () => {
 
     expect(exitCode).toBe(0);
     expect(stdout).toBe(`${JSON.stringify({ instance: ORIGIN, user: USER })}\n`);
-    expect(stderr).toBe(`Authorising in browser…\nOpen this URL if the browser does not open:\n${AUTHORIZE_URL}\n`);
+    expect(stderr).toBe(`Authorising in browser…\n${browserAuthorizationInstructions(AUTHORIZE_URL)}\n`);
     expect(stdout).not.toContain('Authoris');
     expect(stdout).not.toContain(AUTHORIZE_URL);
   });
@@ -334,7 +335,7 @@ describe('auth command parsing and output', () => {
     expect(stdout).toBe(`${JSON.stringify({ instance: ORIGIN, user: USER })}\n`);
     expect(stderr).toBe(
       `Using instance ${ORIGIN} from ${join(cwd, '.drops.json')}\n`
-      + `Authorising in browser…\nOpen this URL if the browser does not open:\n${AUTHORIZE_URL}\n`,
+      + `Authorising in browser…\n${browserAuthorizationInstructions(AUTHORIZE_URL)}\n`,
     );
   });
 

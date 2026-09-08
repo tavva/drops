@@ -4,7 +4,8 @@ import { DropsApiClient, type DropsFilesResult, type DropsListResult } from './a
 import { DROP_SLUG } from './deploy.js';
 import { invalidDropNameError, notAuthenticatedError } from './errors.js';
 import { resolveInstance } from './instance.js';
-import { MacOsKeychainStore, type CredentialStore } from './keychain.js';
+import { createCredentialStore } from './credentials.js';
+import type { CredentialStore } from './keychain.js';
 
 export interface ListOptions {
   cwd: string;
@@ -24,7 +25,7 @@ export interface ListDependencies {
 }
 
 export function createListDependencies(): ListDependencies {
-  return { api: new DropsApiClient(), store: new MacOsKeychainStore(), resolveInstance };
+  return { api: new DropsApiClient(), store: createCredentialStore(), resolveInstance };
 }
 
 export async function list(

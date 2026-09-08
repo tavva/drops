@@ -37,7 +37,7 @@ export interface DropsCliErrorOptions {
 export function notAuthenticatedError(origin: string, action: string): DropsCliError {
   return new DropsCliError({
     code: 'not_authenticated',
-    message: `This Mac is not authenticated to ${origin}.`,
+    message: `This device is not authenticated to ${origin}.`,
     instance: origin,
     guidance: {
       hint: `Authenticate this exact instance before ${action}.`,

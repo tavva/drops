@@ -48,7 +48,7 @@ const QUICK_START = [
 const COMMANDS: CommandHelp[] = [
   {
     name: 'login',
-    summary: 'Authorise this Mac for one exact Drops instance using the browser.',
+    summary: 'Authorise this device for one exact Drops instance using the browser.',
     usage: 'drops login [origin] [--instance <origin>] [--json]',
     arguments: [{ syntax: '[origin]', description: 'Exact HTTPS app origin, such as https://drops.example.com.' }],
     options: [
@@ -63,8 +63,8 @@ const COMMANDS: CommandHelp[] = [
     ],
     notes: [
       'Without an origin the nearest repository .drops.json is used, and the chosen origin is printed before the browser opens.',
-      'The browser URL is also printed for copy and paste.',
-      'Credentials are stored in macOS Keychain separately for each exact origin.',
+      'The browser URL is also printed for copy and paste. On a headless server, forward the printed callback port over SSH before opening it locally.',
+      'Credentials are stored separately for each exact origin: macOS Keychain on Mac, or owner-only files on Linux.',
     ],
   },
   {
@@ -140,7 +140,7 @@ const COMMANDS: CommandHelp[] = [
       'drops auth status https://drops.example.com',
       'drops auth status --instance https://drops.other.example --json',
     ],
-    notes: ['A revoked credential is removed from Keychain when the server reports it invalid.'],
+    notes: ['A revoked credential is removed from local storage when the server reports it invalid.'],
   },
   {
     name: 'logout',
@@ -157,7 +157,7 @@ const COMMANDS: CommandHelp[] = [
       'drops logout https://drops.example.com',
       'drops logout --instance https://drops.other.example --json',
     ],
-    notes: ['The server token is revoked before the local Keychain item is deleted.'],
+    notes: ['The server token is revoked before the local credential is deleted.'],
   },
 ];
 

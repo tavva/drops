@@ -11,7 +11,8 @@ import {
   buildAuthorizeUrl,
   createDeviceLabel,
   createPkce,
-  openMacOsBrowser,
+  openSystemBrowser,
+  browserAuthorizationInstructions,
   waitForBrowserAuthorization,
 } from '../src/auth.js';
 
@@ -63,6 +64,25 @@ describe('PKCE and authorisation URL', () => {
 });
 
 describe('loopback browser authorisation', () => {
+  it('completes headless Linux approval through the printed callback without launching a browser', async () => {
+    let reported = '';
+    const spawn = vi.fn();
+    const pending = waitForBrowserAuthorization({
+      origin: 'https://drops.example.com',
+      state: 'headless-state',
+      challenge: 'challenge',
+      timeoutMs: 2_000,
+      portCandidates: [50_132],
+      onAuthorizeUrl: (url) => { reported = url; },
+      openBrowser: (url) => openSystemBrowser(url, spawn, 'linux', {}),
+    });
+    await vi.waitFor(() => expect(reported).not.toBe(''));
+    const redirectUri = new URL(reported).searchParams.get('redirect_uri')!;
+    await get(`${redirectUri}?state=headless-state&code=approved-code`);
+    await expect(pending).resolves.toEqual({ redirectUri, code: 'approved-code' });
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
   it('reports the copyable authorisation URL before trying to open the browser', async () => {
     let reported = '';
     let opened = '';
@@ -291,6 +311,33 @@ describe('loopback browser authorisation', () => {
 });
 
 describe('browser opener and device label', () => {
+  it('skips browser launching on headless Linux and SSH sessions', async () => {
+    const spawn = vi.fn();
+    await openSystemBrowser('https://drops.example.com', spawn, 'linux', {});
+    await openSystemBrowser('https://drops.example.com', spawn, 'linux', { DISPLAY: ':0', SSH_CONNECTION: 'remote' });
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('uses xdg-open on Linux desktops and permits manual approval if it is unavailable', async () => {
+    const spawn = vi.fn(() => {
+      const child = new EventEmitter();
+      queueMicrotask(() => child.emit('error', new Error('ENOENT')));
+      return child;
+    });
+    await expect(openSystemBrowser('https://drops.example.com', spawn as never, 'linux', { DISPLAY: ':0' })).resolves.toBeUndefined();
+    expect(spawn).toHaveBeenCalledWith('/usr/bin/xdg-open', ['https://drops.example.com'], expect.any(Object));
+  });
+
+  it('prints an SSH tunnel bound to localhost using the actual callback port', () => {
+    const url = buildAuthorizeUrl('https://drops.example.com', {
+      redirectUri: 'http://127.0.0.1:54321/callback', state: 'state', challenge: 'challenge',
+    });
+    expect(browserAuthorizationInstructions(url, 'linux')).toContain(
+      'ssh -N -o ExitOnForwardFailure=yes -L 127.0.0.1:54321:127.0.0.1:54321 user@server',
+    );
+    expect(browserAuthorizationInstructions(url, 'darwin')).toBe(`Open this URL if the browser does not open:\n${url}`);
+  });
+
   it('uses the absolute trusted macOS opener and waits for its spawn event', async () => {
     const spawn = vi.fn(() => {
       const child = new EventEmitter();
@@ -299,7 +346,7 @@ describe('browser opener and device label', () => {
       return child;
     });
 
-    await openMacOsBrowser('https://drops.example.com', spawn as never);
+    await openSystemBrowser('https://drops.example.com', spawn as never, 'darwin');
 
     expect(spawn).toHaveBeenCalledWith('/usr/bin/open', ['https://drops.example.com'], expect.any(Object));
   });
