@@ -23,7 +23,7 @@ import { cliDiscoveryRoute } from './cli/discovery';
 import { cliAuthorizeRoutes } from './cli/authorize';
 import { cliApiAuthRoutes } from './cli/apiAuth';
 import { cliDeployRoute } from './cli/deploy';
-import { cliListRoutes } from './cli/list';
+import { cliReadRoutes } from './cli/read';
 import { cliViewRoutes } from './cli/view';
 
 export async function registerAppHostRoutes(s: FastifyInstance): Promise<void> {
@@ -32,7 +32,7 @@ export async function registerAppHostRoutes(s: FastifyInstance): Promise<void> {
   await s.register(cliAuthorizeRoutes);
   await s.register(cliApiAuthRoutes);
   await s.register(cliDeployRoute);
-  await s.register(cliListRoutes);
+  await s.register(cliReadRoutes);
   await s.register(cliViewRoutes);
   await s.register(loginRoute);
   await s.register(callbackRoute);
