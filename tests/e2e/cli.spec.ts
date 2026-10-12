@@ -166,6 +166,7 @@ test('built executable handles safe local commands without injected dependencies
       commands: expect.arrayContaining([
         expect.objectContaining({ name: 'deploy', usage: expect.stringContaining('drops deploy') }),
         expect.objectContaining({ name: 'list', usage: expect.stringContaining('drops list') }),
+        expect.objectContaining({ name: 'pull', usage: expect.stringContaining('drops pull') }),
       ]),
     });
 
@@ -357,6 +358,63 @@ test('login, configure, deploy, serve, select instances, and revoke CLI access',
     const listMissing = await runCli(['list', 'no-such-drop', '--json'], childOptions);
     expect(listMissing.exitCode).toBe(4);
     expect(parseJson(listMissing)).toMatchObject({ error: { code: 'drop_not_found' } });
+
+    // Another member's drop, created through the services, is listed and pulled by owner/name.
+    const { putObject } = await import('../../src/lib/r2');
+    const { createDropAndVersion } = await import('../../src/services/drops');
+    const { setViewMode } = await import('../../src/services/permissions');
+    const [otherUser] = await db.insert(users).values({
+      email: 'other-user@example.com',
+      username: 'other-user',
+    }).returning();
+    const otherPrefix = 'drops/e2e-other-site/';
+    await putObject(`${otherPrefix}index.html`, Buffer.from('<h1>Shared by another user</h1>\n'), 'text/html');
+    await putObject(`${otherPrefix}nested/data.json`, Buffer.from('{"shared":true}\n'), 'application/json');
+    const otherDrop = await createDropAndVersion(otherUser!.id, 'other-site', {
+      r2Prefix: otherPrefix, byteSize: 48, fileCount: 2,
+    });
+    await setViewMode(otherDrop.dropId, 'authed');
+
+    const listEverything = await runCli(['list', '--all', '--json'], childOptions);
+    expect(listEverything.exitCode).toBe(0);
+    const everything = parseJson(listEverything).drops as Array<{ owner: string; name: string }>;
+    expect(everything.map((drop) => `${drop.owner}/${drop.name}`).sort()).toEqual([
+      'cli-user/cli-preview',
+      'other-user/other-site',
+    ]);
+
+    const otherFiles = await runCli(['list', 'other-user/other-site', '--json'], childOptions);
+    expect(otherFiles.exitCode).toBe(0);
+    expect(parseJson(otherFiles)).toMatchObject({ owner: 'other-user', name: 'other-site', versionId: otherDrop.versionId });
+
+    const pulledOwn = join(temp, 'pulled-own');
+    const pulled = await runCli(['pull', 'cli-preview', pulledOwn, '--json'], childOptions);
+    expect(pulled.exitCode).toBe(0);
+    expect(parseJson(pulled)).toMatchObject({
+      instance: APP_ORIGIN,
+      owner: 'cli-user',
+      name: 'cli-preview',
+      versionId: deployed.versionId,
+      directory: pulledOwn,
+      fileCount: deployed.fileCount,
+    });
+    expect(await readFile(join(pulledOwn, 'asset.txt'), 'utf8')).toBe('from a real zip\n');
+    expect(await readFile(join(pulledOwn, 'index.html'), 'utf8')).toBe('<!doctype html><h1>CLI fixture</h1>\n');
+
+    const pulledOther = join(temp, 'pulled-other');
+    const pulledShared = await runCli(['pull', 'other-user/other-site', pulledOther], childOptions);
+    expect(pulledShared.exitCode).toBe(0);
+    expect(pulledShared.stdout).toBe(`Pulled other-user/other-site (2 files, 48 B) to ${pulledOther}\n`);
+    expect(await readFile(join(pulledOther, 'nested/data.json'), 'utf8')).toBe('{"shared":true}\n');
+
+    const pullAgain = await runCli(['pull', 'cli-preview', pulledOwn, '--json'], childOptions);
+    expect(pullAgain.exitCode).toBe(2);
+    expect(parseJson(pullAgain)).toMatchObject({ error: { code: 'directory_not_empty' } });
+
+    await setViewMode(otherDrop.dropId, 'emails');
+    const pullRefused = await runCli(['pull', 'other-user/other-site', join(temp, 'refused'), '--json'], childOptions);
+    expect(pullRefused.exitCode).toBe(4);
+    expect(parseJson(pullRefused)).toMatchObject({ error: { code: 'drop_not_found' } });
 
     // The second instance deliberately implements only minimal v1 discovery, whoami, and deploy
     // endpoints. It proves exactly three client boundaries: exact discovery-origin equality,
