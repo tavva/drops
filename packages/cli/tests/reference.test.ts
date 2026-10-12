@@ -1,8 +1,8 @@
-// ABOUTME: Verifies drop reference parsing for name and owner/name forms.
-// ABOUTME: Pins which malformed references fail as invalid names and which as invalid references.
+// ABOUTME: Verifies drop reference parsing for name and owner/name forms and relative path checks.
+// ABOUTME: Pins which malformed references fail as invalid names and which paths are unsafe.
 import { describe, expect, it } from 'vitest';
 
-import { parseDropReference } from '../src/reference.js';
+import { isSafeRelativePath, parseDropReference } from '../src/reference.js';
 
 describe('parseDropReference', () => {
   it('parses a bare drop name', () => {
@@ -30,4 +30,17 @@ describe('parseDropReference', () => {
       }));
     },
   );
+});
+
+describe('isSafeRelativePath', () => {
+  it.each(['index.html', 'assets/app.js', 'a b/c#d?.txt', 'ünïcode/ファイル.txt'])('accepts %s', (path) => {
+    expect(isSafeRelativePath(path)).toBe(true);
+  });
+
+  it.each([
+    '', '/etc/passwd', '../secret', 'a/../../b', './index.html', 'a/./b', 'a//b', 'a/', 'a\\b',
+    'line\nbreak', 'nul\u0000byte', '..', '.env', 'a/.git/config',
+  ])('rejects %j', (path) => {
+    expect(isSafeRelativePath(path)).toBe(false);
+  });
 });

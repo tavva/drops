@@ -10,8 +10,9 @@ separate `cat` command.
 
 A drop reference is either `name` (the caller's own drop) or `owner/name`
 (any user's drop; the same order as the `owner--name` subdomain), matching
-`drops view` and `drops open`. `pull` resolves a bare `name` to the caller's
-username with one `GET /api/v1/whoami` call. Both parts must be valid
+`drops view` and `drops open`, which share the same reference and path checks.
+`pull` and `list <ref>` resolve a bare `name` to the caller's username with one
+`GET /api/v1/whoami` call. Both parts must be valid
 slugs/usernames; the CLI rejects anything else before any network call
 (`invalid_name` for a bad bare name, `invalid_reference` otherwise).
 
@@ -24,9 +25,10 @@ All use `requireCliToken` and the structured
 hold CLI tokens; `canView` is the final check on every read.
 
 - `GET /api/v1/drops` — unchanged default (`scope=mine`). `?scope=all` returns
-  every drop the caller can view: `listAllVisibleUnpaged` filtered through
-  `canView`, so a member who has left the allowlist sees only what they can
-  still read. Every entry gains `owner` (username) in both scopes, and `url`
+  every drop the caller can view: `listAllVisibleUnpaged` filtered with
+  `canView`'s rules using one membership lookup, so a member who has left the
+  allowlist sees only drops they own, public drops, and emails drops that list
+  them. Every entry gains `owner` (username) in both scopes, and `url`
   is built from the owner's username. An unknown `scope` → 400
   `invalid_scope`.
 - `GET /api/v1/drops/:name/files` — without `owner`, unchanged: the caller's
@@ -59,22 +61,28 @@ hold CLI tokens; `canView` is the final check on every read.
 ## CLI commands
 
 - `drops list --all` — adds an `owner/name` first column (human) and `owner`
-  in JSON for each drop. `drops list <ref>` accepts `owner/name` too, using
-  the `?owner=` files route; a bare name keeps calling the own-drop route.
-  `--all` with a reference is a usage error.
+  in JSON for each drop; `owner` is required only for `--all`, so the CLI
+  still lists your own drops on an instance that predates it. `drops list
+  <ref>` uses the `?owner=` files route for both forms, so `name` and
+  `<you>/name` return the same JSON. `--all` with a reference is a usage
+  error.
 - `drops pull <ref> [dir] [--instance <origin>] [--json]` — `dir` defaults to
   `./<name>`. Refuses if `dir` exists and is not an empty directory
   (`directory_not_empty`). Fetches the file list, then each file with
   `?version=<versionId>`, one at a time, writing into a hidden staging
-  directory beside `dir` that is renamed onto `dir` only when every file has
-  arrived. On `version_changed` it discards the staging directory and
+  directory that is revealed only when every file has arrived: beside a
+  missing `dir` and renamed onto it, or inside an existing empty `dir` (so
+  `drops pull foo .` works and the directory keeps its permissions) with its
+  entries moved up. Parent directories the pull created are removed if it
+  fails. Each file's byte count must match its listed size (`size_mismatch`). On `version_changed` it discards the staging directory and
   restarts once; a second change is an error. Any failure, or an interrupt,
   removes the staging directory. Each path from the server is re-validated
   locally (no absolute paths, backslashes, control characters, or empty or
   dot-prefixed segments) before writing, so a hostile or buggy server cannot
   write outside `dir` (`unsafe_path`). Two paths that map to one local entry
   report `path_conflict`; other local filesystem failures report
-  `write_failed` with the path and errno. JSON result: `{ instance, owner,
+  `write_failed` with the path and errno. Both exit with 2, like other local
+  file errors; `unsafe_path` and `size_mismatch` exit with 6. JSON result: `{ instance, owner,
   name, versionId, directory, fileCount, byteSize }`. Human output: one
   summary line.
 - Credentials come from `createCredentialStore()` (macOS Keychain or Linux

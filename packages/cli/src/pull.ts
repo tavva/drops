@@ -2,7 +2,7 @@
 // ABOUTME: Validates paths locally and reveals the directory only once every file has arrived.
 import { randomUUID } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
-import { mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rename, rm, rmdir, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
@@ -16,7 +16,7 @@ import { authenticatedInstance, createCredentialStore, type CredentialDependenci
 import { DropsCliError } from './errors.js';
 import { resolveInstance } from './instance.js';
 import type { LifecycleRegistrar } from './lifecycle.js';
-import { parseDropReference, type DropReference } from './reference.js';
+import { isSafeRelativePath, parseDropReference, type DropReference } from './reference.js';
 
 export interface PullApi {
   whoami(origin: string, token: string): Promise<DropsUser>;
@@ -50,18 +50,6 @@ export function createPullDependencies(registerCleanup?: LifecycleRegistrar): Pu
   return { api: new DropsApiClient(), store: createCredentialStore(), resolveInstance, registerCleanup };
 }
 
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/u;
-
-// A relative path whose every segment can name a drop entry, so it cannot escape the
-// destination directory on disk.
-export function isSafeRelativePath(path: string): boolean {
-  if (path.length === 0 || path.startsWith('/') || path.includes('\\') || CONTROL_CHARACTERS.test(path)) {
-    return false;
-  }
-  // Drops never contain dot-prefixed entries, which also rules out `.` and `..`.
-  return path.split('/').every((segment) => segment !== '' && !segment.startsWith('.'));
-}
-
 async function resolveOwner(api: PullApi, origin: string, token: string, reference: DropReference): Promise<string> {
   return reference.owner ?? (await api.whoami(origin, token)).username;
 }
@@ -77,21 +65,22 @@ function writeFailed(path: string, errno: string): DropsCliError {
     code: 'write_failed',
     message: `Could not write ${path}: ${errno}`,
     details: { path, errno },
-    exitCode: 6,
+    exitCode: 2,
   });
 }
 
-async function assertEmptyOrMissing(directory: string): Promise<void> {
+// Returns whether the destination already exists as an empty directory.
+async function checkDestination(directory: string): Promise<boolean> {
   let target;
   try {
     target = await stat(directory);
   } catch (error) {
     const code = errnoCode(error);
-    if (code === 'ENOENT') return;
+    if (code === 'ENOENT') return false;
     if (code !== undefined) throw writeFailed(directory, code);
     throw error;
   }
-  if (target.isDirectory() && (await readdir(directory)).length === 0) return;
+  if (target.isDirectory() && (await readdir(directory)).length === 0) return true;
   throw new DropsCliError({
     code: 'directory_not_empty',
     message: `${directory} exists and is not an empty directory`,
@@ -126,11 +115,18 @@ const PATH_CONFLICT_CODES = new Set(['EEXIST', 'ENOTDIR', 'EISDIR']);
 
 // Two drop paths can name the same local entry, such as a file and a directory of one
 // name, or names differing only in case on a case-insensitive filesystem.
-async function writeDropFile(body: AsyncIterable<Uint8Array>, staging: string, path: string, origin: string) {
+async function writeDropFile(
+  body: AsyncIterable<Uint8Array>,
+  staging: string,
+  file: { path: string; size: number },
+  origin: string,
+) {
+  const { path } = file;
   const target = join(staging, path);
+  let written: number;
   try {
     await mkdir(dirname(target), { recursive: true });
-    return await writeBody(body, target);
+    written = await writeBody(body, target);
   } catch (error) {
     const code = errnoCode(error);
     if (code === undefined) throw error;
@@ -140,8 +136,35 @@ async function writeDropFile(body: AsyncIterable<Uint8Array>, staging: string, p
       message: 'Two files in the drop map to the same local path',
       details: { path },
       instance: origin,
+      exitCode: 2,
+    });
+  }
+  if (written !== file.size) {
+    throw new DropsCliError({
+      code: 'size_mismatch',
+      message: `The instance sent ${written} bytes for ${path} but listed ${file.size}`,
+      details: { path, expected: file.size, received: written },
+      instance: origin,
       exitCode: 6,
     });
+  }
+  return written;
+}
+
+// Moves staged entries into an existing empty destination, so the directory itself keeps its
+// identity and permissions. A failure removes whatever was already moved.
+async function moveInto(staging: string, directory: string): Promise<void> {
+  const moved: string[] = [];
+  try {
+    for (const entry of await readdir(staging)) {
+      await rename(join(staging, entry), join(directory, entry));
+      moved.push(entry);
+    }
+    await rmdir(staging);
+  } catch (error) {
+    await Promise.all(moved.map((entry) => rm(join(directory, entry), { recursive: true, force: true })))
+      .catch(() => {});
+    throw error;
   }
 }
 
@@ -149,9 +172,10 @@ async function download(
   dependencies: PullDependencies,
   instance: { origin: string; token: string },
   drop: { owner: string; name: string },
-  directory: string,
+  destination: { directory: string; exists: boolean },
 ): Promise<PullResult> {
   const { origin, token } = instance;
+  const { directory } = destination;
   const listing = await dependencies.api.readDropFiles(origin, token, drop.owner, drop.name);
   const unsafe = listing.files.find((file) => !isSafeRelativePath(file.path));
   if (unsafe !== undefined) {
@@ -164,7 +188,11 @@ async function download(
     });
   }
 
-  const staging = join(dirname(directory), `.${basename(directory)}.drops-pull-${randomUUID()}`);
+  // Stage inside an existing empty destination, or beside a missing one, so files only
+  // become visible once every one has arrived.
+  const staging = destination.exists
+    ? join(directory, `.drops-pull-${randomUUID()}`)
+    : join(dirname(directory), `.${basename(directory)}.drops-pull-${randomUUID()}`);
   await localWrite(directory, () => mkdir(staging));
   const removeStaging = () => rm(staging, { recursive: true, force: true });
   const unregister = dependencies.registerCleanup?.(removeStaging);
@@ -176,9 +204,9 @@ async function download(
         path: file.path,
         ...(listing.versionId === null ? {} : { versionId: listing.versionId }),
       });
-      byteSize += await writeDropFile(body, staging, file.path, origin);
+      byteSize += await writeDropFile(body, staging, file, origin);
     }
-    await localWrite(directory, () => rename(staging, directory));
+    await localWrite(directory, () => (destination.exists ? moveInto(staging, directory) : rename(staging, directory)));
     return {
       instance: origin,
       ...drop,
@@ -188,7 +216,7 @@ async function download(
       byteSize,
     };
   } catch (error) {
-    await removeStaging();
+    await removeStaging().catch(() => {});
     throw error;
   } finally {
     unregister?.();
@@ -201,18 +229,27 @@ export async function pull(
 ): Promise<PullResult> {
   const reference = parseDropReference(options.reference, 'drops pull preview');
   const directory = resolve(options.cwd, options.directory ?? reference.name);
-  await assertEmptyOrMissing(directory);
+  const exists = await checkDestination(directory);
   const instance = await authenticatedInstance(options, dependencies, 'reading drops');
   const drop = {
     owner: await resolveOwner(dependencies.api, instance.origin, instance.token, reference),
     name: reference.name,
   };
-  await localWrite(directory, () => mkdir(dirname(directory), { recursive: true }));
+  // mkdir reports the first directory it created, which is removed again if the pull fails.
+  const createdParent = exists
+    ? undefined
+    : await localWrite(directory, () => mkdir(dirname(directory), { recursive: true }));
+  const destination = { directory, exists };
   try {
-    return await download(dependencies, instance, drop, directory);
+    try {
+      return await download(dependencies, instance, drop, destination);
+    } catch (error) {
+      // A redeploy mid-pull invalidates the version being fetched; one fresh attempt reads the new one.
+      if (!(error instanceof DropsCliError) || error.code !== 'version_changed') throw error;
+      return await download(dependencies, instance, drop, destination);
+    }
   } catch (error) {
-    // A redeploy mid-pull invalidates the version being fetched; one fresh attempt reads the new one.
-    if (!(error instanceof DropsCliError) || error.code !== 'version_changed') throw error;
-    return await download(dependencies, instance, drop, directory);
+    if (createdParent !== undefined) await rm(createdParent, { recursive: true, force: true }).catch(() => {});
+    throw error;
   }
 }

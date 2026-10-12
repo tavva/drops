@@ -1,6 +1,6 @@
 // ABOUTME: Verifies pull path validation, atomic downloads, restart-once, cleanup, and output.
 // ABOUTME: Uses injected API fakes and real temporary directories; no credential store or network is touched.
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,7 +10,7 @@ import type { DropsReadFilesResult } from '../src/api.js';
 import { parsePullArguments } from '../src/commands/pull.js';
 import { DropsCliError } from '../src/errors.js';
 import { runCli } from '../src/index.js';
-import { isSafeRelativePath, pull, type PullDependencies } from '../src/pull.js';
+import { pull, type PullDependencies } from '../src/pull.js';
 
 const ORIGIN = 'https://drops.example.com';
 
@@ -40,19 +40,6 @@ async function invoke(argv: string[], deps: PullDependencies, cwd: string) {
   }, undefined, { pull: deps });
   return { ...capture, exitCode };
 }
-
-describe('isSafeRelativePath', () => {
-  it.each(['index.html', 'assets/app.js', 'a b/c#d?.txt', 'ünïcode/ファイル.txt'])('accepts %s', (path) => {
-    expect(isSafeRelativePath(path)).toBe(true);
-  });
-
-  it.each([
-    '', '/etc/passwd', '../secret', 'a/../../b', './index.html', 'a/./b', 'a//b', 'a/', 'a\\b',
-    'line\nbreak', 'nul\u0000byte', '..', '.env', 'a/.git/config',
-  ])('rejects %j', (path) => {
-    expect(isSafeRelativePath(path)).toBe(false);
-  });
-});
 
 describe('pull', () => {
   let parent: string;
@@ -183,13 +170,12 @@ describe('pull', () => {
       code: 'path_conflict',
       details: { path: paths[1] },
       instance: ORIGIN,
-      exitCode: 6,
+      exitCode: 2,
     });
     expect(await readdir(parent)).toEqual([]);
   });
 
   it('reports a local write failure with the path and errno', async () => {
-    const { chmod } = await import('node:fs/promises');
     const locked = join(parent, 'locked');
     await mkdir(locked);
     await chmod(locked, 0o500);
@@ -198,7 +184,7 @@ describe('pull', () => {
         .rejects.toMatchObject({
           code: 'write_failed',
           details: { path: join(locked, 'out'), errno: 'EACCES' },
-          exitCode: 6,
+          exitCode: 2,
         });
     } finally {
       await chmod(locked, 0o700);
@@ -208,7 +194,60 @@ describe('pull', () => {
   it('refuses a destination whose parent is a file', async () => {
     await writeFile(join(parent, 'file'), 'x');
     await expect(pull({ cwd: parent, reference: 'bob/site', directory: 'file/out' }, pullDependencies()))
-      .rejects.toMatchObject({ code: 'write_failed', details: { errno: 'ENOTDIR' }, exitCode: 6 });
+      .rejects.toMatchObject({ code: 'write_failed', details: { errno: 'ENOTDIR' }, exitCode: 2 });
+  });
+
+  it('pulls into the current directory when it is empty, keeping its permissions', async () => {
+    const here = join(parent, 'here');
+    await mkdir(here, { mode: 0o750 });
+    await chmod(here, 0o750);
+    const result = await pull({ cwd: here, reference: 'bob/site', directory: '.' }, pullDependencies());
+    expect(result.directory).toBe(here);
+    expect((await readdir(here)).sort()).toEqual(['assets', 'image.bin', 'index.html']);
+    expect(await readFile(join(here, 'assets/deep/app.js'), 'utf8')).toBe('1;\n');
+    expect((await stat(here)).mode & 0o777).toBe(0o750);
+    expect(await readdir(parent)).toEqual(['here']);
+  });
+
+  it('leaves an existing empty directory empty when the pull fails', async () => {
+    const here = join(parent, 'here');
+    await mkdir(here);
+    let calls = 0;
+    const deps = pullDependencies({
+      readDropFile: vi.fn().mockImplementation(async (_origin: string, _token: string, options: { path: string }) => {
+        calls += 1;
+        if (calls === 3) throw new DropsCliError({ code: 'network_error', message: 'down', instance: ORIGIN, exitCode: 5 });
+        return content(...bodies[options.path]!);
+      }),
+    });
+    await expect(pull({ cwd: here, reference: 'bob/site', directory: '.' }, deps)).rejects.toMatchObject({ code: 'network_error' });
+    expect(await readdir(here)).toEqual([]);
+  });
+
+  it('removes parent directories it created when the pull fails', async () => {
+    const deps = pullDependencies({
+      readDropFile: vi.fn().mockRejectedValue(
+        new DropsCliError({ code: 'network_error', message: 'down', instance: ORIGIN, exitCode: 5 }),
+      ),
+    });
+    await mkdir(join(parent, 'kept'));
+    await expect(pull({ cwd: parent, reference: 'bob/site', directory: 'kept/a/b/c' }, deps))
+      .rejects.toMatchObject({ code: 'network_error' });
+    expect(await readdir(parent)).toEqual(['kept']);
+    expect(await readdir(join(parent, 'kept'))).toEqual([]);
+  });
+
+  it('fails when a file\'s bytes do not match its listed size', async () => {
+    const deps = pullDependencies({
+      readDropFiles: vi.fn().mockResolvedValue({ ...listing, files: [{ path: 'index.html', size: 99 }] }),
+    });
+    await expect(pull({ cwd: parent, reference: 'bob/site' }, deps)).rejects.toMatchObject({
+      code: 'size_mismatch',
+      details: { path: 'index.html', expected: 99, received: 5 },
+      instance: ORIGIN,
+      exitCode: 6,
+    });
+    expect(await readdir(parent)).toEqual([]);
   });
 
   it('restarts once when the drop changes during the pull', async () => {

@@ -3,9 +3,9 @@
 import { DropsApiClient, type DropsViewTarget } from './api.js';
 import { openSystemBrowser, type BrowserOpener } from './auth.js';
 import { authenticatedInstance, createCredentialStore } from './credentials.js';
-import { DROP_SLUG } from './deploy.js';
 import { DropsCliError } from './errors.js';
 import { commandUsageError } from './help.js';
+import { isSafeRelativePath, parseDropReference, type DropReference } from './reference.js';
 import { resolveInstance } from './instance.js';
 import type { CredentialStore } from './keychain.js';
 
@@ -30,17 +30,19 @@ export function createViewDependencies(): ViewDependencies {
 }
 
 function parseTarget(options: ViewOptions, command: 'view' | 'open'): DropsViewTarget {
-  const parts = options.target.split('/');
-  if (parts.length > 2 || parts.some((part) => !DROP_SLUG.test(part))) {
+  let reference: DropReference;
+  try {
+    reference = parseDropReference(options.target, `drops ${command} preview`);
+  } catch {
     throw commandUsageError(command, 'Provide a drop name or owner/name.');
   }
   const path = (options.path ?? '').normalize('NFC');
-  const segments = path.endsWith('/') ? path.slice(0, -1).split('/') : path.split('/');
-  if (path !== '' && (/[\\\x00-\x1f\x7f]/u.test(path) || /^[A-Za-z]:/u.test(path) ||
-    segments.some((segment) => !segment || segment.startsWith('.')))) {
+  // A trailing slash names a directory; the rest must be a safe file path.
+  const filePath = path.endsWith('/') ? path.slice(0, -1) : path;
+  if (path !== '' && (/^[A-Za-z]:/u.test(path) || !isSafeRelativePath(filePath))) {
     throw commandUsageError(command, 'Provide a relative file or directory path without dot segments.');
   }
-  return { name: parts.at(-1)!, ...(parts.length === 2 ? { owner: parts[0]! } : {}), path };
+  return { ...reference, path };
 }
 
 async function authorise(options: ViewOptions, command: 'view' | 'open', dependencies: ViewDependencies) {

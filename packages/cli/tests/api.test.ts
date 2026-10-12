@@ -445,10 +445,28 @@ describe('DropsApiClient listing', () => {
     expect(fetch.mock.calls[0]?.[0]).toBe('https://drops.example.com/api/v1/drops?scope=all');
   });
 
-  it('rejects drop list entries without an owner as a server error', async () => {
+  it('requires an owner on every entry when listing every viewable drop', async () => {
     const withoutOwner: Record<string, unknown> = { ...listBody.drops[0] };
     delete withoutOwner.owner;
     const fetch = vi.fn<FetchLike>().mockResolvedValue(jsonResponse({ ...listBody, drops: [withoutOwner] }));
+
+    await expect(new DropsApiClient(fetch).listDrops('https://drops.example.com', 'secret-token', { all: true }))
+      .rejects.toMatchObject({ code: 'server_error', exitCode: 6 });
+  });
+
+  it('accepts own drops without an owner from instances that predate it', async () => {
+    const withoutOwner: Record<string, unknown> = { ...listBody.drops[0] };
+    delete withoutOwner.owner;
+    const body = { ...listBody, drops: [withoutOwner] };
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(jsonResponse(body));
+
+    await expect(new DropsApiClient(fetch).listDrops('https://drops.example.com', 'secret-token')).resolves.toEqual(body);
+  });
+
+  it('rejects a non-string owner as a server error', async () => {
+    const fetch = vi.fn<FetchLike>().mockResolvedValue(
+      jsonResponse({ ...listBody, drops: [{ ...listBody.drops[0], owner: 42 }] }),
+    );
 
     await expect(new DropsApiClient(fetch).listDrops('https://drops.example.com', 'secret-token'))
       .rejects.toMatchObject({ code: 'server_error', exitCode: 6 });
@@ -468,44 +486,6 @@ describe('DropsApiClient listing', () => {
 
     await expect(new DropsApiClient(fetch).listDrops('https://drops.example.com', 'secret-token'))
       .rejects.toMatchObject({ code: 'not_authenticated', exitCode: 3 });
-  });
-
-  it('returns the validated file list for one drop', async () => {
-    const body = {
-      instance: 'https://drops.example.com',
-      name: 'site',
-      files: [{ path: 'index.html', size: 14 }, { path: 'assets/app.js', size: 16 }],
-    };
-    const fetch = vi.fn<FetchLike>().mockResolvedValue(jsonResponse(body));
-
-    await expect(
-      new DropsApiClient(fetch).listDropFiles('https://drops.example.com', 'secret-token', 'site'),
-    ).resolves.toEqual(body);
-    const [url, init] = fetch.mock.calls[0] ?? [];
-    expect(url).toBe('https://drops.example.com/api/v1/drops/site/files');
-    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer secret-token');
-  });
-
-  it('maps a 404 file listing to drop_not_found with exit code 4', async () => {
-    const fetch = vi.fn<FetchLike>().mockResolvedValue(
-      jsonResponse({ error: { code: 'drop_not_found', message: 'No drop with that name exists for this user', details: null } }, 404),
-    );
-
-    await expect(
-      new DropsApiClient(fetch).listDropFiles('https://drops.example.com', 'secret-token', 'missing'),
-    ).rejects.toMatchObject({
-      code: 'drop_not_found',
-      exitCode: 4,
-      instance: 'https://drops.example.com',
-    });
-  });
-
-  it('rejects a malformed file list as a server error', async () => {
-    const fetch = vi.fn<FetchLike>().mockResolvedValue(jsonResponse({ name: 'site', files: [{}] }));
-
-    await expect(
-      new DropsApiClient(fetch).listDropFiles('https://drops.example.com', 'secret-token', 'site'),
-    ).rejects.toMatchObject({ code: 'server_error', exitCode: 6 });
   });
 });
 

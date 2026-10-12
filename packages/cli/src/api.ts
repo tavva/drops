@@ -33,7 +33,7 @@ export interface DropsDeploymentResult {
 
 export interface DropsListItem {
   name: string;
-  owner: string;
+  owner?: string;
   url: string;
   updatedAt: string;
   byteSize: number;
@@ -192,11 +192,12 @@ function isDeployment(value: unknown): value is DropsDeploymentResult {
   );
 }
 
-function isListItem(value: unknown): value is DropsListItem {
+// Instances before scope=all omit owner from a caller's own drops, so it is required only for --all.
+function isListItem(value: unknown, requireOwner: boolean): value is DropsListItem {
   return (
     isRecord(value) &&
     typeof value.name === 'string' &&
-    typeof value.owner === 'string' &&
+    (typeof value.owner === 'string' || (!requireOwner && value.owner === undefined)) &&
     typeof value.url === 'string' &&
     typeof value.updatedAt === 'string' &&
     typeof value.byteSize === 'number' &&
@@ -206,12 +207,12 @@ function isListItem(value: unknown): value is DropsListItem {
   );
 }
 
-function isListResult(value: unknown): value is DropsListResult {
+function isListResult(value: unknown, requireOwner: boolean): value is DropsListResult {
   return (
     isRecord(value) &&
     typeof value.instance === 'string' &&
     Array.isArray(value.drops) &&
-    value.drops.every(isListItem)
+    value.drops.every((item) => isListItem(item, requireOwner))
   );
 }
 
@@ -412,29 +413,7 @@ export class DropsApiClient {
     const response = await this.bearerRequest(origin, token, url, { method: 'GET' });
     if (response.status !== 200) await this.throwForResponse(response, origin, [token]);
     const result = await jsonOrNull(response);
-    if (!isListResult(result)) throw serverError(origin);
-    return result;
-  }
-
-  async listDropFiles(origin: string, token: string, name: string): Promise<DropsFilesResult> {
-    const response = await this.bearerRequest(
-      origin,
-      token,
-      `${origin}/api/v1/drops/${encodeURIComponent(name)}/files`,
-      { method: 'GET' },
-    );
-    if (response.status === 404) {
-      throw new DropsCliError({
-        code: 'drop_not_found',
-        message: `No drop named "${name}" on ${origin}`,
-        instance: origin,
-        guidance: { hint: 'List your drops to see available names.', examples: ['drops list'] },
-        exitCode: 4,
-      });
-    }
-    if (response.status !== 200) await this.throwForResponse(response, origin, [token]);
-    const result = await jsonOrNull(response);
-    if (!isFilesResult(result)) throw serverError(origin);
+    if (!isListResult(result, options.all === true)) throw serverError(origin);
     return result;
   }
 

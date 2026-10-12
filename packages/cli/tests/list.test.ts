@@ -61,7 +61,7 @@ function dependencies(overrides: Partial<ListDependencies> = {}): ListDependenci
   return {
     api: {
       listDrops: vi.fn().mockResolvedValue(listResult),
-      listDropFiles: vi.fn().mockResolvedValue(filesResult),
+      whoami: vi.fn().mockResolvedValue({ id: 'user-1', email: 'alice@example.com', username: 'alice' }),
       readDropFiles: vi.fn().mockResolvedValue(readFilesResult),
     },
     store: { get: vi.fn().mockResolvedValue('secret-token') },
@@ -111,7 +111,7 @@ describe('list orchestration', () => {
     await expect(list({ cwd: '/repo' }, deps)).resolves.toEqual(listResult);
     expect(deps.resolveInstance).toHaveBeenCalledWith({ cwd: '/repo', explicit: undefined });
     expect(deps.api.listDrops).toHaveBeenCalledWith(ORIGIN, 'secret-token', { all: false });
-    expect(deps.api.listDropFiles).not.toHaveBeenCalled();
+    expect(deps.api.readDropFiles).not.toHaveBeenCalled();
   });
 
   it('lists every viewable drop with all', async () => {
@@ -124,7 +124,7 @@ describe('list orchestration', () => {
     const deps = dependencies();
     await expect(list({ cwd: '/repo', name: 'bob/notes' }, deps)).resolves.toEqual(readFilesResult);
     expect(deps.api.readDropFiles).toHaveBeenCalledWith(ORIGIN, 'secret-token', 'bob', 'notes');
-    expect(deps.api.listDropFiles).not.toHaveBeenCalled();
+    expect(deps.api.whoami).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed owner/name reference before any network request', async () => {
@@ -136,10 +136,11 @@ describe('list orchestration', () => {
     expect(deps.resolveInstance).not.toHaveBeenCalled();
   });
 
-  it('lists one drop\'s files when a name is given', async () => {
+  it('lists the caller\'s own drop files in the same shape as owner/name', async () => {
     const deps = dependencies();
-    await expect(list({ cwd: '/repo', name: 'site' }, deps)).resolves.toEqual(filesResult);
-    expect(deps.api.listDropFiles).toHaveBeenCalledWith(ORIGIN, 'secret-token', 'site');
+    await expect(list({ cwd: '/repo', name: 'site' }, deps)).resolves.toEqual(readFilesResult);
+    expect(deps.api.whoami).toHaveBeenCalledWith(ORIGIN, 'secret-token');
+    expect(deps.api.readDropFiles).toHaveBeenCalledWith(ORIGIN, 'secret-token', 'alice', 'site');
     expect(deps.api.listDrops).not.toHaveBeenCalled();
   });
 
@@ -251,7 +252,9 @@ describe('list dispatch', () => {
   });
 
   it('prints rendered file lines when a name is given', async () => {
-    const result = await invoke(['list', 'site'], dependencies());
+    const deps = dependencies();
+    deps.api.readDropFiles = vi.fn().mockResolvedValue({ ...filesResult, owner: 'alice', versionId: 'version-1' });
+    const result = await invoke(['list', 'site'], deps);
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('index.html');
     expect(result.stdout).toContain('assets/app.js');
