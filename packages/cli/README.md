@@ -73,14 +73,16 @@ drops login
 drops deploy ./dist --name preview --json
 drops list
 drops list preview
+drops list --all
 drops view preview
 drops view preview assets/app.js
 drops open preview
+drops pull alice/report ./report
 drops auth status --json
 drops logout
 ```
 
-`drops list` shows the drops you own on the selected instance; add a drop name to list that drop's files with sizes.
+`drops list` shows the drops you own on the selected instance; add a drop name to list that drop's files with sizes. `drops list --all` shows every drop you can view as `owner/name`, and `drops list alice/report` lists a shared drop's files.
 
 `drops view <name> [path]` reads a drop’s entry point or a particular file in the
 terminal. HTML is displayed as source. Use `--json` for content and metadata;
@@ -95,7 +97,13 @@ Use `--no-browser` to skip browser launch, or `--no-browser --json` to retrieve
 `openUrl` programmatically. This private URL grants access as you to the selected
 drop; do not share it. Share the ordinary drop URL instead.
 
-Both commands use the same viewing permissions as the website and accept
+`drops pull <name> [dir]` downloads every file of a drop into a new or empty
+directory (default `./<name>`); `owner/name` pulls a drop shared with you. The
+files arrive in a hidden staging directory that is renamed into place only once
+every file is present, so a failed pull leaves nothing behind. If the drop is
+redeployed during the pull, it restarts once with the new version.
+
+These commands use the same viewing permissions as the website and accept
 `--instance`. Browser access is scoped to the selected drop; revoking the CLI
 credential also invalidates the browser access it granted.
 
