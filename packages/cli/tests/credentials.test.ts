@@ -1,12 +1,17 @@
 // ABOUTME: Exercises Linux credential storage against isolated temporary directories.
-// ABOUTME: Checks permissions, atomic replacement, origin isolation, and unsafe filesystem entries.
+// ABOUTME: Checks permissions, atomic replacement, origin isolation, unsafe entries, and instance lookup.
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { credentialDirectory, createCredentialStore, FileCredentialStore } from '../src/credentials.js';
+import {
+  authenticatedInstance,
+  credentialDirectory,
+  createCredentialStore,
+  FileCredentialStore,
+} from '../src/credentials.js';
 import { MacOsKeychainStore } from '../src/keychain.js';
 
 const directories: string[] = [];
@@ -110,5 +115,29 @@ describe('FileCredentialStore', () => {
     await store.set(origin, 'replacement');
     await expect(store.get(origin)).resolves.toBe('replacement');
     expect(await readFile(target, 'utf8')).toBe('untouched');
+  });
+});
+
+const ORIGIN = 'https://drops.example.com';
+
+describe('authenticatedInstance', () => {
+  it('returns the resolved origin and its stored credential', async () => {
+    const resolveInstance = vi.fn().mockResolvedValue(ORIGIN);
+    const store = { get: vi.fn().mockResolvedValue('secret-token') };
+
+    await expect(authenticatedInstance({ cwd: '/repo', instance: ORIGIN }, { store, resolveInstance }, 'reading drops'))
+      .resolves.toEqual({ origin: ORIGIN, token: 'secret-token' });
+    expect(resolveInstance).toHaveBeenCalledWith({ cwd: '/repo', explicit: ORIGIN });
+    expect(store.get).toHaveBeenCalledWith(ORIGIN);
+  });
+
+  it('requires a stored credential', async () => {
+    const store = { get: vi.fn().mockResolvedValue(null) };
+
+    await expect(authenticatedInstance(
+      { cwd: '/repo' },
+      { store, resolveInstance: vi.fn().mockResolvedValue(ORIGIN) },
+      'reading drops',
+    )).rejects.toMatchObject({ code: 'not_authenticated', instance: ORIGIN, exitCode: 3 });
   });
 });

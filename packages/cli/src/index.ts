@@ -32,6 +32,8 @@ import { createLifecycleRegistry, type LifecycleRegistry } from './lifecycle.js'
 import { createListDependencies, type ListDependencies } from './list.js';
 import { createOutput, type TextWriter } from './output.js';
 import { parseViewArguments } from './commands/view.js';
+import { parsePullArguments, renderPullResult } from './commands/pull.js';
+import { createPullDependencies, pull, type PullDependencies } from './pull.js';
 import { createViewDependencies, view, open, type ViewDependencies } from './view.js';
 
 export interface CliRuntime {
@@ -45,6 +47,7 @@ export interface CliDependencies {
   auth?: AuthDependencies;
   list?: ListDependencies;
   view?: ViewDependencies;
+  pull?: PullDependencies;
 }
 
 interface CommandResult {
@@ -143,7 +146,7 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
   if (command === 'list') {
     const parsed = parseListArguments(argv.slice(1));
     const result = await runListCommand({ ...parsed, cwd }, dependencies.list);
-    const human = 'files' in result ? renderDropFiles(result) : renderDropsList(result);
+    const human = 'files' in result ? renderDropFiles(result) : renderDropsList(result, parsed.all);
     return { value: { ...result }, human };
   }
 
@@ -155,6 +158,12 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
     }
     const result = await open(options, diagnostic, dependencies.view);
     return { value: { ...result }, human: result.url };
+  }
+
+  if (command === 'pull') {
+    const parsed = parsePullArguments(argv.slice(1));
+    const result = await pull({ ...parsed, cwd }, dependencies.pull);
+    return { value: { ...result }, human: renderPullResult(result) };
   }
 
   if (command !== 'init') {
@@ -226,5 +235,6 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
     auth: createAuthDependencies(),
     list: createListDependencies(),
     view: createViewDependencies(),
+    pull: createPullDependencies(lifecycle.register),
   });
 }

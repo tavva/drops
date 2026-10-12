@@ -33,6 +33,7 @@ export interface DropsDeploymentResult {
 
 export interface DropsListItem {
   name: string;
+  owner?: string;
   url: string;
   updatedAt: string;
   byteSize: number;
@@ -55,6 +56,18 @@ export interface DropsFilesResult {
   instance: string;
   name: string;
   files: DropsFileEntry[];
+}
+
+export interface DropsReadFilesResult extends DropsFilesResult {
+  owner: string;
+  versionId: string | null;
+}
+
+export interface ReadDropFileOptions {
+  owner: string;
+  name: string;
+  path: string;
+  versionId?: string;
 }
 
 export interface DropsViewResult {
@@ -179,10 +192,12 @@ function isDeployment(value: unknown): value is DropsDeploymentResult {
   );
 }
 
-function isListItem(value: unknown): value is DropsListItem {
+// Instances before scope=all omit owner from a caller's own drops, so it is required only for --all.
+function isListItem(value: unknown, requireOwner: boolean): value is DropsListItem {
   return (
     isRecord(value) &&
     typeof value.name === 'string' &&
+    (typeof value.owner === 'string' || (!requireOwner && value.owner === undefined)) &&
     typeof value.url === 'string' &&
     typeof value.updatedAt === 'string' &&
     typeof value.byteSize === 'number' &&
@@ -192,12 +207,12 @@ function isListItem(value: unknown): value is DropsListItem {
   );
 }
 
-function isListResult(value: unknown): value is DropsListResult {
+function isListResult(value: unknown, requireOwner: boolean): value is DropsListResult {
   return (
     isRecord(value) &&
     typeof value.instance === 'string' &&
     Array.isArray(value.drops) &&
-    value.drops.every(isListItem)
+    value.drops.every((item) => isListItem(item, requireOwner))
   );
 }
 
@@ -213,6 +228,37 @@ function isFilesResult(value: unknown): value is DropsFilesResult {
     Array.isArray(value.files) &&
     value.files.every(isFileEntry)
   );
+}
+
+function isReadFilesResult(value: unknown): value is DropsReadFilesResult {
+  return (
+    isFilesResult(value) &&
+    isRecord(value) &&
+    typeof value.owner === 'string' &&
+    (typeof value.versionId === 'string' || value.versionId === null)
+  );
+}
+
+function dropNotFound(origin: string, owner: string, name: string): DropsCliError {
+  return new DropsCliError({
+    code: 'drop_not_found',
+    message: `No drop "${owner}/${name}" that you can view on ${origin}`,
+    instance: origin,
+    guidance: { hint: 'List the drops you can view to see available references.', examples: ['drops list --all'] },
+    exitCode: 4,
+  });
+}
+
+async function* networkGuardedBody(
+  body: AsyncIterable<Uint8Array> | null,
+  origin: string,
+): AsyncIterable<Uint8Array> {
+  if (body === null) return;
+  try {
+    yield* body;
+  } catch {
+    throw networkError(origin);
+  }
 }
 
 function redactString(value: string, secrets: string[]): string {
@@ -362,34 +408,59 @@ export class DropsApiClient {
     return user;
   }
 
-  async listDrops(origin: string, token: string): Promise<DropsListResult> {
-    const response = await this.bearerRequest(origin, token, `${origin}/api/v1/drops`, { method: 'GET' });
+  async listDrops(origin: string, token: string, options: { all?: boolean } = {}): Promise<DropsListResult> {
+    const url = `${origin}/api/v1/drops${options.all === true ? '?scope=all' : ''}`;
+    const response = await this.bearerRequest(origin, token, url, { method: 'GET' });
     if (response.status !== 200) await this.throwForResponse(response, origin, [token]);
     const result = await jsonOrNull(response);
-    if (!isListResult(result)) throw serverError(origin);
+    if (!isListResult(result, options.all === true)) throw serverError(origin);
     return result;
   }
 
-  async listDropFiles(origin: string, token: string, name: string): Promise<DropsFilesResult> {
-    const response = await this.bearerRequest(
-      origin,
-      token,
-      `${origin}/api/v1/drops/${encodeURIComponent(name)}/files`,
-      { method: 'GET' },
-    );
+  async readDropFiles(origin: string, token: string, owner: string, name: string): Promise<DropsReadFilesResult> {
+    const url = new URL(`/api/v1/drops/${encodeURIComponent(name)}/files`, origin);
+    url.searchParams.set('owner', owner);
+    const response = await this.bearerRequest(origin, token, url.href, { method: 'GET' });
     if (response.status === 404) {
-      throw new DropsCliError({
-        code: 'drop_not_found',
-        message: `No drop named "${name}" on ${origin}`,
-        instance: origin,
-        guidance: { hint: 'List your drops to see available names.', examples: ['drops list'] },
-        exitCode: 4,
-      });
+      const code = parseStructuredError(await jsonOrNull(response), [token])?.code;
+      throw code === 'drop_not_found' ? dropNotFound(origin, owner, name) : serverError(origin);
     }
     if (response.status !== 200) await this.throwForResponse(response, origin, [token]);
     const result = await jsonOrNull(response);
-    if (!isFilesResult(result)) throw serverError(origin);
+    if (!isReadFilesResult(result)) throw serverError(origin);
     return result;
+  }
+
+  async readDropFile(origin: string, token: string, options: ReadDropFileOptions): Promise<AsyncIterable<Uint8Array>> {
+    const { owner, name, path } = options;
+    const url = new URL(this.viewingUrl(origin, { owner, name, path }, 'content'));
+    if (options.versionId !== undefined) url.searchParams.set('version', options.versionId);
+    const response = await this.bearerRequest(origin, token, url.href, { method: 'GET' });
+    if (response.status === 404 || response.status === 409) {
+      const code = parseStructuredError(await jsonOrNull(response), [token])?.code;
+      if (response.status === 409 && code === 'version_changed') {
+        throw new DropsCliError({
+          code,
+          message: `${owner}/${name} changed while it was being read`,
+          instance: origin,
+          guidance: { hint: 'Run the command again to read the new version.' },
+          exitCode: 4,
+        });
+      }
+      if (response.status === 404 && code === 'file_not_found') {
+        throw new DropsCliError({
+          code,
+          message: `No file "${path}" in ${owner}/${name}`,
+          instance: origin,
+          guidance: { hint: 'List the drop’s files to see available paths.', examples: [`drops list ${owner}/${name}`] },
+          exitCode: 4,
+        });
+      }
+      if (response.status === 404 && code === 'drop_not_found') throw dropNotFound(origin, owner, name);
+      throw serverError(origin);
+    }
+    if (response.status !== 200) await this.throwForResponse(response, origin, [token]);
+    return networkGuardedBody(response.body, origin);
   }
 
   private viewingUrl(origin: string, target: DropsViewTarget, action: 'content' | 'open'): string {

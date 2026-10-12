@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 import { EventEmitter, once } from 'node:events';
 import { request } from 'node:http';
-import { connect } from 'node:net';
+import { connect, createServer } from 'node:net';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -36,6 +36,16 @@ function get(url: string, options: { method?: string; host?: string } = {}): Pro
     req.once('error', reject);
     req.end();
   });
+}
+
+// Asks the OS for an unused loopback port so tests never collide with other local listeners.
+async function freePort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  if (address === null || typeof address === 'string') throw new Error('Could not allocate a test port');
+  return address.port;
 }
 
 describe('PKCE and authorisation URL', () => {
@@ -72,7 +82,7 @@ describe('loopback browser authorisation', () => {
       state: 'headless-state',
       challenge: 'challenge',
       timeoutMs: 2_000,
-      portCandidates: [50_132],
+      portCandidates: [await freePort()],
       onAuthorizeUrl: (url) => { reported = url; },
       openBrowser: (url) => openSystemBrowser(url, spawn, 'linux', {}),
     });
@@ -91,7 +101,7 @@ describe('loopback browser authorisation', () => {
       state: 'expected-state',
       challenge: 'challenge',
       timeoutMs: 2_000,
-      portCandidates: [50_131],
+      portCandidates: [await freePort()],
       onAuthorizeUrl: (url) => {
         reported = url;
       },
@@ -150,7 +160,7 @@ describe('loopback browser authorisation', () => {
       state: 'expected-state',
       challenge: 'challenge',
       timeoutMs: 2_000,
-      portCandidates: [50_124],
+      portCandidates: [await freePort()],
       openBrowser: async (url) => {
         redirectUri = new URL(url).searchParams.get('redirect_uri')!;
       },
@@ -174,7 +184,7 @@ describe('loopback browser authorisation', () => {
       state: 'expected-state',
       challenge: 'challenge',
       timeoutMs: 2_000,
-      portCandidates: [50_128],
+      portCandidates: [await freePort()],
       openBrowser: async (url) => {
         redirectUri = new URL(url).searchParams.get('redirect_uri')!;
       },
@@ -198,7 +208,7 @@ describe('loopback browser authorisation', () => {
       state: 'expected-state',
       challenge: 'challenge',
       timeoutMs: 10,
-      portCandidates: [50_125],
+      portCandidates: [await freePort()],
       openBrowser: async (url) => {
         redirectUri = new URL(url).searchParams.get('redirect_uri')!;
       },
@@ -219,7 +229,7 @@ describe('loopback browser authorisation', () => {
       state: 'expected-state',
       challenge: 'challenge',
       timeoutMs: 100,
-      portCandidates: [50_129],
+      portCandidates: [await freePort()],
       openBrowser: async (url) => {
         redirectUri = new URL(url).searchParams.get('redirect_uri')!;
         notifyOpened();
@@ -256,7 +266,7 @@ describe('loopback browser authorisation', () => {
       state: 'expected-state',
       challenge: 'challenge',
       timeoutMs: 100,
-      portCandidates: [50_130],
+      portCandidates: [await freePort()],
       openBrowser: async (url) => {
         redirectUri = new URL(url).searchParams.get('redirect_uri')!;
         notifyOpened();
@@ -277,13 +287,16 @@ describe('loopback browser authorisation', () => {
   });
 
   it('retries a busy candidate port and closes the listener when opening the browser fails', async () => {
+    const busyPort = await freePort();
+    let fallbackPort = await freePort();
+    while (fallbackPort === busyPort) fallbackPort = await freePort();
     let opened = '';
     const first = waitForBrowserAuthorization({
       origin: 'https://drops.example.com',
       state: 'first-state',
       challenge: 'challenge',
       timeoutMs: 2_000,
-      portCandidates: [50_126],
+      portCandidates: [busyPort],
       openBrowser: async (url) => {
         opened = new URL(url).searchParams.get('redirect_uri')!;
       },
@@ -296,14 +309,14 @@ describe('loopback browser authorisation', () => {
       state: 'second-state',
       challenge: 'challenge',
       timeoutMs: 2_000,
-      portCandidates: [50_126, 50_127],
+      portCandidates: [busyPort, fallbackPort],
       openBrowser: async (url) => {
-        expect(new URL(new URL(url).searchParams.get('redirect_uri')!).port).toBe('50127');
+        expect(new URL(new URL(url).searchParams.get('redirect_uri')!).port).toBe(String(fallbackPort));
         throw new Error('open failed with drops_cli_secret');
       },
     });
     await expect(failed).rejects.toMatchObject({ code: 'authorisation_denied', exitCode: 3 });
-    await expect(get('http://127.0.0.1:50127/callback')).rejects.toThrow();
+    await expect(get(`http://127.0.0.1:${fallbackPort}/callback`)).rejects.toThrow();
 
     await get(`${opened}?state=first-state&error=access_denied`);
     await expect(firstSettled).resolves.toMatchObject({ code: 'authorisation_denied' });

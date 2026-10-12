@@ -1,12 +1,13 @@
 // ABOUTME: Selects native macOS storage or private credential files for headless Linux.
-// ABOUTME: Isolates exact origins and writes tokens atomically with owner-only permissions.
+// ABOUTME: Isolates exact origins, writes tokens atomically, and resolves a command's instance credential.
 import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, rename, unlink } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 
-import { DropsCliError } from './errors.js';
+import { DropsCliError, notAuthenticatedError } from './errors.js';
+import { resolveInstance } from './instance.js';
 import { MacOsKeychainStore, type CredentialStore } from './keychain.js';
 
 function unavailable(): DropsCliError {
@@ -104,4 +105,23 @@ export function createCredentialStore(platform: NodeJS.Platform = process.platfo
     throw new DropsCliError({ code: 'unsupported_platform', message: 'The Drops CLI supports macOS and Linux', exitCode: 3 });
   };
   return { get: fail, set: fail, delete: fail };
+}
+
+export interface CredentialDependencies {
+  store: Pick<CredentialStore, 'get'>;
+  resolveInstance?: typeof resolveInstance;
+}
+
+export async function authenticatedInstance(
+  options: { cwd: string; instance?: string },
+  dependencies: CredentialDependencies,
+  action: string,
+): Promise<{ origin: string; token: string }> {
+  const origin = await (dependencies.resolveInstance ?? resolveInstance)({
+    cwd: options.cwd,
+    explicit: options.instance,
+  });
+  const token = await dependencies.store.get(origin);
+  if (token === null) throw notAuthenticatedError(origin, action);
+  return { origin, token };
 }

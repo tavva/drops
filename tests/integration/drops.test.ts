@@ -182,6 +182,14 @@ describe('listAllVisibleUnpaged', () => {
     expect(ids.has(lockedDrop!.id)).toBe(false);
   });
 
+  it('returns timestamps as Date objects', async () => {
+    await createDropAndVersion(ownerA, 'dated', { r2Prefix: 'drops/dated/', byteSize: 1, fileCount: 1 });
+    const [listed] = await listAllVisibleUnpaged({ id: ownerA, email: 'a@x.com' });
+    expect(listed!.createdAt).toBeInstanceOf(Date);
+    expect(listed!.updatedAt).toBeInstanceOf(Date);
+    expect(listed!.version!.createdAt).toBeInstanceOf(Date);
+  });
+
   it('listAllVisible (paged) also includes include_domain emails drops', async () => {
     const [domainDrop] = await db.insert(drops).values({
       ownerId: ownerB, name: 'bobs-domain-paged', viewMode: 'emails', includeDomain: true,

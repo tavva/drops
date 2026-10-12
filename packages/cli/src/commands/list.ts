@@ -1,5 +1,5 @@
 // ABOUTME: Parses the drops list command shape and renders drop and file listings for humans.
-// ABOUTME: A bare invocation lists the user's drops; a positional name lists one drop's files.
+// ABOUTME: A bare invocation lists drops (all viewable ones with --all); a reference lists one drop's files.
 import { parseArgs } from 'node:util';
 
 import type { DropsFilesResult, DropsListResult } from '../api.js';
@@ -9,6 +9,7 @@ import { list, type ListDependencies } from '../list.js';
 export interface ParsedListArguments {
   name?: string;
   instance?: string;
+  all: boolean;
   json: boolean;
 }
 
@@ -23,6 +24,7 @@ export function parseListArguments(argv: string[]): ParsedListArguments {
       args: argv,
       options: {
         instance: { type: 'string' },
+        all: { type: 'boolean', default: false },
         json: { type: 'boolean', default: false },
       },
       allowPositionals: true,
@@ -32,10 +34,14 @@ export function parseListArguments(argv: string[]): ParsedListArguments {
     if (error instanceof TypeError) throw commandUsageError('list', argumentErrorMessage(error));
     throw error;
   }
-  if (parsed.positionals.length > 1) throw commandUsageError('list', 'Provide at most one drop name.');
+  if (parsed.positionals.length > 1) throw commandUsageError('list', 'Provide at most one drop reference.');
+  if (parsed.values.all && parsed.positionals.length > 0) {
+    throw commandUsageError('list', 'Use --all only without a drop reference.');
+  }
   return {
     ...(parsed.positionals[0] === undefined ? {} : { name: parsed.positionals[0] }),
     ...(parsed.values.instance === undefined ? {} : { instance: parsed.values.instance }),
+    all: parsed.values.all,
     json: parsed.values.json,
   };
 }
@@ -44,7 +50,10 @@ export async function runListCommand(
   options: ParsedListArguments & { cwd: string },
   dependencies?: ListDependencies,
 ) {
-  return list({ cwd: options.cwd, name: options.name, instance: options.instance }, dependencies);
+  return list(
+    { cwd: options.cwd, name: options.name, all: options.all, instance: options.instance },
+    dependencies,
+  );
 }
 
 export function formatByteSize(bytes: number): string {
@@ -59,10 +68,12 @@ export function formatByteSize(bytes: number): string {
   return `${rounded} ${unit}`;
 }
 
-export function renderDropsList(result: DropsListResult): string {
-  if (result.drops.length === 0) return `No drops on ${result.instance}`;
+export function renderDropsList(result: DropsListResult, all = false): string {
+  if (result.drops.length === 0) {
+    return all ? `No drops you can view on ${result.instance}` : `No drops on ${result.instance}`;
+  }
   return result.drops.map((drop) => [
-    drop.name,
+    all ? `${drop.owner}/${drop.name}` : drop.name,
     drop.url,
     `${drop.fileCount} ${drop.fileCount === 1 ? 'file' : 'files'}`,
     formatByteSize(drop.byteSize),

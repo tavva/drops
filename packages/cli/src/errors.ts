@@ -60,6 +60,19 @@ export function invalidDropNameError(name: string, example: string): DropsCliErr
   });
 }
 
+export function invalidReferenceError(reference: string, example: string): DropsCliError {
+  return new DropsCliError({
+    code: 'invalid_reference',
+    message: 'A drop reference must be name or owner/name',
+    details: { reference },
+    guidance: {
+      hint: 'Owner and drop names use lowercase letters, numbers, and single hyphens.',
+      examples: [example],
+    },
+    exitCode: 2,
+  });
+}
+
 export class DropsCliError extends Error {
   readonly code: string;
   readonly instance: string | null;

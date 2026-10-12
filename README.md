@@ -109,13 +109,16 @@ drops init --instance https://drops.example.com
 drops deploy ./dist --name preview --json
 drops view preview
 drops open preview
+drops pull preview ./preview-copy
 drops auth status --json
 drops logout
 ```
 
 Use `drops view <name> [path]` to read a drop’s entry point or a particular file
-in the terminal, or `drops open <name> [path]` to open it in an authenticated
-browser. Both use your saved CLI login and support `owner/name` for shared drops.
+in the terminal, `drops open <name> [path]` to open it in an authenticated
+browser, or `drops pull <name> [dir]` to download the whole drop. `drops list
+--all` lists every drop you can view. All of them use your saved CLI login and
+support `owner/name` for shared drops.
 For headless browser access, `drops open <name> --no-browser` prints a private,
 60-second URL to open locally. See the [CLI guide](packages/cli/README.md#use)
 for JSON output and binary-file support.

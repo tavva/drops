@@ -1,0 +1,46 @@
+// ABOUTME: Verifies drop reference parsing for name and owner/name forms and relative path checks.
+// ABOUTME: Pins which malformed references fail as invalid names and which paths are unsafe.
+import { describe, expect, it } from 'vitest';
+
+import { isSafeRelativePath, parseDropReference } from '../src/reference.js';
+
+describe('parseDropReference', () => {
+  it('parses a bare drop name', () => {
+    expect(parseDropReference('site', 'drops cat site index.html')).toEqual({ name: 'site' });
+  });
+
+  it('parses an owner/name reference', () => {
+    expect(parseDropReference('bob/site', 'drops cat site index.html')).toEqual({ owner: 'bob', name: 'site' });
+  });
+
+  it('rejects an invalid bare name as invalid_name', () => {
+    expect(() => parseDropReference('Not Valid', 'drops cat site index.html')).toThrow(expect.objectContaining({
+      code: 'invalid_name',
+      exitCode: 2,
+    }));
+  });
+
+  it.each(['bob/', '/site', 'bob/site/extra', 'Bob/site', 'bob/si--te', 'bob//site'])(
+    'rejects the malformed reference %s',
+    (reference) => {
+      expect(() => parseDropReference(reference, 'drops cat bob/site index.html')).toThrow(expect.objectContaining({
+        code: 'invalid_reference',
+        details: { reference },
+        exitCode: 2,
+      }));
+    },
+  );
+});
+
+describe('isSafeRelativePath', () => {
+  it.each(['index.html', 'assets/app.js', 'a b/c#d?.txt', 'ünïcode/ファイル.txt'])('accepts %s', (path) => {
+    expect(isSafeRelativePath(path)).toBe(true);
+  });
+
+  it.each([
+    '', '/etc/passwd', '../secret', 'a/../../b', './index.html', 'a/./b', 'a//b', 'a/', 'a\\b',
+    'line\nbreak', 'nul\u0000byte', '..', '.env', 'a/.git/config',
+  ])('rejects %j', (path) => {
+    expect(isSafeRelativePath(path)).toBe(false);
+  });
+});
