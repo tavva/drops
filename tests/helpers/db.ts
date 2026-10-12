@@ -10,7 +10,8 @@ import { TEST_DB_NAME } from './testDbName';
 const ROOT_URL = 'postgres://drops:drops@localhost:55432/postgres';
 
 export async function setupTestDatabase() {
-  const rootSql = postgres(ROOT_URL, { prepare: false });
+  // DROP DATABASE IF EXISTS emits a NOTICE on a fresh server; it is expected, so keep it out of test output.
+  const rootSql = postgres(ROOT_URL, { prepare: false, onnotice: () => {} });
   try {
     await rootSql.unsafe(`DROP DATABASE IF EXISTS "${TEST_DB_NAME}" WITH (FORCE)`);
     await rootSql.unsafe(`CREATE DATABASE "${TEST_DB_NAME}"`);
