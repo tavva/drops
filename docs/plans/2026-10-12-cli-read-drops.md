@@ -10,6 +10,8 @@
 
 Design doc: `docs/plans/2026-10-12-cli-read-drops-design.md`.
 
+**Note:** this plan predates the `drops view` command on `main`. The built feature follows the design doc: no `cat`, pull reads through the existing content route, and the owner files route uses `?owner=`.
+
 **Deviation from the design, decided while planning:** the content route gets its own rate limit (2400 requests a minute per IP) instead of the global 120. Pull fetches one request per file and drops may hold up to 1000 files (`UPLOAD_LIMITS.fileCount`), so the global limit would fail every pull of a drop with more than ~119 files. 2400 covers a full 1000-file pull plus its one restart.
 
 **Second deviation:** the CLI validates the `cat` path locally with the same rules as pulled paths. Without it, `..` segments would be collapsed by URL parsing in `fetch` (including `%2E%2E`) and the request would reach a different API route.
