@@ -2,9 +2,9 @@
 // ABOUTME: Validates targets before credential lookup and exposes browser handoffs for headless use.
 import { DropsApiClient, type DropsViewTarget } from './api.js';
 import { openSystemBrowser, type BrowserOpener } from './auth.js';
-import { createCredentialStore } from './credentials.js';
+import { authenticatedInstance, createCredentialStore } from './credentials.js';
 import { DROP_SLUG } from './deploy.js';
-import { DropsCliError, notAuthenticatedError } from './errors.js';
+import { DropsCliError } from './errors.js';
 import { commandUsageError } from './help.js';
 import { resolveInstance } from './instance.js';
 import type { CredentialStore } from './keychain.js';
@@ -45,9 +45,7 @@ function parseTarget(options: ViewOptions, command: 'view' | 'open'): DropsViewT
 
 async function authorise(options: ViewOptions, command: 'view' | 'open', dependencies: ViewDependencies) {
   const target = parseTarget(options, command);
-  const origin = await (dependencies.resolveInstance ?? resolveInstance)({ cwd: options.cwd, explicit: options.instance });
-  const token = await dependencies.store.get(origin);
-  if (token === null) throw notAuthenticatedError(origin, 'viewing drops');
+  const { origin, token } = await authenticatedInstance(options, dependencies, 'viewing drops');
   return { target, origin, token };
 }
 

@@ -1,27 +1,30 @@
 // ABOUTME: Orchestrates authenticated drop listing across instance resolution and the list APIs.
-// ABOUTME: Keeps credentials origin-bound and validates drop names before any network request.
-import { DropsApiClient, type DropsFilesResult, type DropsListResult } from './api.js';
-import { DROP_SLUG } from './deploy.js';
-import { invalidDropNameError, notAuthenticatedError } from './errors.js';
+// ABOUTME: Keeps credentials origin-bound and validates drop references before any network request.
+import {
+  DropsApiClient,
+  type DropsFilesResult,
+  type DropsListResult,
+  type DropsReadFilesResult,
+} from './api.js';
+import { authenticatedInstance, createCredentialStore, type CredentialDependencies } from './credentials.js';
 import { resolveInstance } from './instance.js';
-import { createCredentialStore } from './credentials.js';
-import type { CredentialStore } from './keychain.js';
+import { parseDropReference } from './reference.js';
 
 export interface ListOptions {
   cwd: string;
   name?: string;
+  all?: boolean;
   instance?: string;
 }
 
 export interface ListApi {
-  listDrops(origin: string, token: string): Promise<DropsListResult>;
+  listDrops(origin: string, token: string, options: { all: boolean }): Promise<DropsListResult>;
   listDropFiles(origin: string, token: string, name: string): Promise<DropsFilesResult>;
+  readDropFiles(origin: string, token: string, owner: string, name: string): Promise<DropsReadFilesResult>;
 }
 
-export interface ListDependencies {
+export interface ListDependencies extends CredentialDependencies {
   api: ListApi;
-  store: Pick<CredentialStore, 'get'>;
-  resolveInstance?: typeof resolveInstance;
 }
 
 export function createListDependencies(): ListDependencies {
@@ -32,15 +35,11 @@ export async function list(
   options: ListOptions,
   dependencies: ListDependencies = createListDependencies(),
 ): Promise<DropsListResult | DropsFilesResult> {
-  if (options.name !== undefined && !DROP_SLUG.test(options.name)) {
-    throw invalidDropNameError(options.name, 'drops list design-preview');
-  }
-  const origin = await (dependencies.resolveInstance ?? resolveInstance)({
-    cwd: options.cwd,
-    explicit: options.instance,
-  });
-  const token = await dependencies.store.get(origin);
-  if (token === null) throw notAuthenticatedError(origin, 'listing drops');
-  if (options.name === undefined) return dependencies.api.listDrops(origin, token);
-  return dependencies.api.listDropFiles(origin, token, options.name);
+  const reference = options.name === undefined
+    ? undefined
+    : parseDropReference(options.name, 'drops list design-preview');
+  const { origin, token } = await authenticatedInstance(options, dependencies, 'listing drops');
+  if (reference === undefined) return dependencies.api.listDrops(origin, token, { all: options.all === true });
+  if (reference.owner === undefined) return dependencies.api.listDropFiles(origin, token, reference.name);
+  return dependencies.api.readDropFiles(origin, token, reference.owner, reference.name);
 }

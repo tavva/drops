@@ -143,7 +143,7 @@ const dispatch: CommandDispatcher = async (argv, cwd, diagnostic = () => {}, dep
   if (command === 'list') {
     const parsed = parseListArguments(argv.slice(1));
     const result = await runListCommand({ ...parsed, cwd }, dependencies.list);
-    const human = 'files' in result ? renderDropFiles(result) : renderDropsList(result);
+    const human = 'files' in result ? renderDropFiles(result) : renderDropsList(result, parsed.all);
     return { value: { ...result }, human };
   }
 
