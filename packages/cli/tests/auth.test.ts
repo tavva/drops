@@ -82,7 +82,7 @@ describe('loopback browser authorisation', () => {
       state: 'headless-state',
       challenge: 'challenge',
       timeoutMs: 2_000,
-      portCandidates: [50_132],
+      portCandidates: [await freePort()],
       onAuthorizeUrl: (url) => { reported = url; },
       openBrowser: (url) => openSystemBrowser(url, spawn, 'linux', {}),
     });
