@@ -17,7 +17,16 @@ export interface CommandHelp {
   notes: string[];
 }
 
-export type HelpCommandName = 'login' | 'init' | 'deploy' | 'list' | 'view' | 'open' | 'auth status' | 'logout';
+export type HelpCommandName =
+  | 'login'
+  | 'init'
+  | 'deploy'
+  | 'list'
+  | 'view'
+  | 'open'
+  | 'pull'
+  | 'auth status'
+  | 'logout';
 
 export interface RootHelpValue extends Record<string, unknown> {
   helpVersion: 1;
@@ -107,21 +116,27 @@ const COMMANDS: CommandHelp[] = [
   },
   {
     name: 'list',
-    summary: 'List your drops on the selected instance, or one drop’s files.',
-    usage: 'drops list [name] [--instance <origin>] [--json]',
-    arguments: [{ syntax: '[name]', description: 'Optional drop name; lists that drop’s files with sizes.' }],
+    summary: 'List your drops, every drop you can view, or one drop’s files.',
+    usage: 'drops list [name|owner/name] [--all] [--instance <origin>] [--json]',
+    arguments: [{
+      syntax: '[name|owner/name]',
+      description: 'Optional drop reference; lists that drop’s files with sizes. A bare name is your own drop.',
+    }],
     options: [
+      { syntax: '--all', description: 'List every drop you can view, shown as owner/name.' },
       { syntax: '--instance <origin>', description: 'Override the nearest repository .drops.json instance.' },
       { syntax: '--json', description: 'Write exactly one machine-readable result to stdout.' },
       { syntax: '--help', description: 'Show this command help.' },
     ],
     examples: [
       'drops list',
+      'drops list --all',
       'drops list preview',
-      'drops list --instance https://drops.other.example --json',
+      'drops list alice/report --json',
     ],
     notes: [
-      'Only drops you own are listed.',
+      'Without --all only drops you own are listed.',
+      'Only drops you can view in the browser are listed or readable.',
       'Run drops login <origin> before listing an instance.',
     ],
   },
@@ -163,6 +178,26 @@ const COMMANDS: CommandHelp[] = [
       'The private openUrl grants access as you to this drop and must be opened within 60 seconds. Do not share it.',
       'On a headless machine, copy the private URL into your local browser; no SSH tunnel is needed.',
       'Browser access is scoped to this drop and ends when the CLI credential is revoked.',
+    ],
+  },
+  {
+    name: 'pull',
+    summary: 'Download every file of a drop you can view into a local directory.',
+    usage: 'drops pull <name|owner/name> [dir] [--instance <origin>] [--json]',
+    arguments: [
+      { syntax: '<name|owner/name>', description: 'Your drop name, or an owner/name shared with you.' },
+      { syntax: '[dir]', description: 'Destination directory; defaults to ./<name>. It must be missing or empty.' },
+    ],
+    options: [
+      { syntax: '--instance <origin>', description: 'Override the nearest repository .drops.json instance.' },
+      { syntax: '--json', description: 'Write exactly one machine-readable result to stdout.' },
+      { syntax: '--help', description: 'Show this command help.' },
+    ],
+    examples: ['drops pull preview', 'drops pull alice/report ./report --json'],
+    notes: [
+      'Only drops you can view in the browser are readable.',
+      'The directory appears only once every file has arrived; a failed pull leaves nothing behind.',
+      'If the drop is redeployed during the pull, the pull restarts once with the new version.',
     ],
   },
   {
