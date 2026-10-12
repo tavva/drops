@@ -10,6 +10,7 @@ import { signHandoff } from '@/lib/handoff';
 import { putObject } from '@/lib/r2';
 import { onAppHost, onDropHost } from '@/middleware/host';
 import { registerCsrf } from '@/middleware/csrf';
+import { registerRateLimit } from '@/middleware/rateLimit';
 import { cliViewRoutes } from '@/routes/cli/view';
 import { cliApiAuthRoutes } from '@/routes/cli/apiAuth';
 import { bootstrapRoute } from '@/routes/auth/bootstrap';
@@ -22,6 +23,7 @@ let app: Awaited<ReturnType<typeof buildServer>>;
 let ownerId: string;
 let tokenId: string;
 let dropId: string;
+let versionId: string;
 let token: string;
 const appHost = 'drops.localtest.me';
 const dropHost = 'alice--site.content.localtest.me';
@@ -29,6 +31,7 @@ const dropHost = 'alice--site.content.localtest.me';
 beforeAll(async () => {
   app = await buildServer();
   await app.register(onAppHost(async (server) => {
+    await registerRateLimit(server);
     await registerCsrf(server);
     await server.register(cliViewRoutes);
     await server.register(cliApiAuthRoutes);
@@ -56,6 +59,7 @@ beforeEach(async () => {
     r2Prefix: prefix, byteSize: 30, fileCount: 2,
   });
   dropId = createdDrop.dropId;
+  versionId = createdDrop.versionId;
   await setEntryPath(createdDrop.versionId, 'docs/index.html');
   await db.update(drops).set({ viewMode: 'emails', includeDomain: false }).where(eq(drops.id, dropId));
 });
@@ -109,6 +113,41 @@ describe('CLI content reads', () => {
     await db.update(drops).set({ viewMode: 'authed' }).where(eq(drops.id, dropId));
     expect((await api(action, '?owner=alice', otherToken)).statusCode).toBe(200);
     expect((await api(action, '?owner=missing', otherToken)).statusCode).toBe(404);
+  });
+  it('checks a requested version against the current version', async () => {
+    expect((await api('content', `?path=docs%2Fa%20b.txt&version=${versionId}`)).body).toBe('asset');
+    const stale = await api('content', `?path=docs%2Fa%20b.txt&version=${randomUUID()}`);
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().error.code).toBe('version_changed');
+  });
+  it('rejects a malformed version before authentication', async () => {
+    const response = await api('content', '?version=not-a-uuid', 'invalid');
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe('invalid_request');
+  });
+  it('gives a refused drop the same 404 whatever version is requested', async () => {
+    const [other] = await db.insert(users).values({ email: 'bob@example.com', username: 'bob' }).returning();
+    const otherToken = `drops_cli_${randomUUID()}`;
+    await db.insert(cliTokens).values({ userId: other!.id,
+      tokenHash: createHash('sha256').update(otherToken).digest('hex'), label: 'Other' });
+    const plain = await api('content', '?owner=alice', otherToken);
+    const versioned = await api('content', `?owner=alice&version=${randomUUID()}`, otherToken);
+    const missing = await api('content', '?owner=missing', otherToken);
+    expect(plain.statusCode).toBe(404);
+    expect(versioned.body).toBe(plain.body);
+    expect(missing.body).toBe(plain.body);
+  });
+  it('does not answer HEAD, which would fetch the whole object', async () => {
+    const response = await app.inject({ method: 'HEAD', url: '/api/v1/drops/site/content',
+      headers: { host: appHost, authorization: `Bearer ${token}` } });
+    expect(response.statusCode).toBe(404);
+  });
+  it('allows enough content reads to pull the largest drop', async () => {
+    for (let index = 0; index < 130; index += 1) {
+      const response = await api('content', '?path=docs%2Fa%20b.txt');
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['x-ratelimit-limit']).toBe('2400');
+    }
   });
   it('keeps CLI content routes off drop hosts', async () => {
     const response = await app.inject({ method: 'GET', url: '/api/v1/drops/site/content',

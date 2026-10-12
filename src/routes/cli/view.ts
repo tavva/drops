@@ -13,6 +13,10 @@ import { findByOwnerAndName } from '@/services/drops';
 import { canView } from '@/services/permissions';
 import { findByUsername } from '@/services/users';
 
+// drops pull reads one file per request and a drop may hold up to 1000 files, so content
+// reads need more headroom than the global limit, including one restarted pull.
+const contentReadLimit = { rateLimit: { max: 2400, timeWindow: '1 minute' } };
+
 function error(reply: FastifyReply, status: number, code: string, message: string) {
   return reply.code(status).send({ error: { code, message, details: null } });
 }
@@ -58,11 +62,23 @@ export const cliViewRoutes: FastifyPluginAsync = async (app) => {
     properties: { owner: { type: 'string' }, path: { type: 'string' } },
     additionalProperties: false,
   };
+  const contentQuerystring = {
+    ...querystring,
+    properties: { ...querystring.properties, version: { type: 'string', format: 'uuid' } },
+  };
   app.get('/api/v1/drops/:name/content', {
-    preHandler: requireCliToken, schema: { querystring },
+    preHandler: requireCliToken,
+    schema: { querystring: contentQuerystring },
+    config: contentReadLimit,
+    // An automatic HEAD route would download the whole object only to discard it.
+    exposeHeadRoute: false,
   }, async (request, reply) => {
     const target = await resolveDrop(request, reply);
     if (!target) return;
+    const { version } = request.query as { version?: string };
+    if (version !== undefined && version !== target.version.id) {
+      return error(reply, 409, 'version_changed', 'The drop has a different current version');
+    }
     const found = await getDropContent(target.version, target.path);
     if (!found) return error(reply, 404, 'file_not_found', 'No file exists at that path');
     // Uploaded HTML must never execute with the control plane's origin.
