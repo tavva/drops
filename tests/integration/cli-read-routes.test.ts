@@ -177,10 +177,15 @@ describe('GET /api/v1/drops scopes', () => {
     await addViewer(listed.dropId, await aliceEmail());
     const domain = await bobDrop(bob.id, 'domain', 'emails');
     await setIncludeDomain(domain.dropId, true);
+    const both = await bobDrop(bob.id, 'both', 'emails');
+    await setIncludeDomain(both.dropId, true);
+    await addViewer(both.dropId, await aliceEmail());
+    await createDropAndVersion(ownerId, 'mine', { r2Prefix: `drops/${randomUUID()}/`, byteSize: 1, fileCount: 1 });
 
     const response = await get('/api/v1/drops?scope=all');
     expect(response.statusCode).toBe(200);
-    expect(response.json().drops.map((d: { name: string }) => d.name).sort()).toEqual(['listed', 'open']);
+    expect(response.json().drops.map((d: { name: string }) => d.name).sort())
+      .toEqual(['both', 'listed', 'mine', 'open']);
   });
 
   it('rejects an unknown scope', async () => {

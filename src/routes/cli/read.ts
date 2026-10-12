@@ -6,7 +6,15 @@ import { dropOriginFor } from '@/lib/dropHost';
 import { listPrefixObjects } from '@/lib/r2';
 import { isValidSlug } from '@/lib/slug';
 import { requireCliToken } from '@/middleware/cliAuth';
-import { findByOwnerAndName, listAllVisibleUnpaged, listByOwner, type DropSummary } from '@/services/drops';
+import {
+  findByOwnerAndName,
+  listAllVisibleUnpaged,
+  listByOwner,
+  type DropListItem,
+  type DropSummary,
+} from '@/services/drops';
+import { isMemberEmail } from '@/services/allowlist';
+import { isViewerAllowed } from '@/services/dropViewers';
 import { canView } from '@/services/permissions';
 import { findByUsername } from '@/services/users';
 
@@ -15,8 +23,8 @@ type ApiErrorCode = 'invalid_name' | 'invalid_scope' | 'drop_not_found' | 'rate_
 const messages: Record<ApiErrorCode, string> = {
   invalid_name: 'The drop name must be a valid slug',
   invalid_scope: 'The scope must be mine or all',
-  drop_not_found: 'No drop with that name exists for this user',
-  rate_limited: 'Too many list requests',
+  drop_not_found: 'No drop with that name is visible to you',
+  rate_limited: 'Too many read requests',
   internal_error: 'An unexpected error occurred',
 };
 
@@ -43,6 +51,19 @@ async function fileEntries(drop: DropSummary) {
   return objects.map((object) => ({ path: object.key.slice(prefix.length), size: object.size }));
 }
 
+// listAllVisibleUnpaged assumes an allowlisted member. This applies canView's rules to its
+// rows with one membership lookup, so a member who has left the allowlist sees only drops
+// they own, public drops, and emails drops that list them.
+async function visibleToCaller(user: { id: string; email: string }, drops: DropListItem[]) {
+  if (await isMemberEmail(user.email)) return drops;
+  const kept: DropListItem[] = [];
+  for (const drop of drops) {
+    if (drop.ownerId === user.id || drop.viewMode === 'public') kept.push(drop);
+    else if (drop.viewMode === 'emails' && await isViewerAllowed(drop.id, user.email)) kept.push(drop);
+  }
+  return kept;
+}
+
 function toListEntry(drop: DropSummary, owner: string) {
   return {
     name: drop.name,
@@ -62,7 +83,7 @@ export const cliReadRoutes: FastifyPluginAsync = async (app) => {
       ? error.statusCode
       : undefined;
     if (statusCode === 429) return apiError(reply, 429, 'rate_limited');
-    request.log.error({ err: error, request_id: request.id }, 'CLI list request failed');
+    request.log.error({ err: error, request_id: request.id }, 'CLI read request failed');
     return apiError(reply, 500, 'internal_error');
   });
 
@@ -71,9 +92,7 @@ export const cliReadRoutes: FastifyPluginAsync = async (app) => {
     const user = request.user!;
     if (scope === 'all') {
       const candidates = await listAllVisibleUnpaged({ id: user.id, email: user.email });
-      // The listing query assumes the caller is an allowlisted member; canView stays the authority.
-      const allowed = await Promise.all(candidates.map((drop) => canView(user, drop)));
-      const visible = candidates.filter((drop, index) => allowed[index] && drop.ownerUsername !== null);
+      const visible = (await visibleToCaller(user, candidates)).filter((drop) => drop.ownerUsername !== null);
       return {
         instance: config.APP_ORIGIN,
         drops: visible.map((drop) => toListEntry(drop, drop.ownerUsername!)),
