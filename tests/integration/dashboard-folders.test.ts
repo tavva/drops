@@ -70,6 +70,35 @@ describe('GET /app with folders', () => {
     expect(inside).toContain('site');
   });
 
+  it('lists drops newest first by default and A–Z with ?sort=name, selecting the matching option', async () => {
+    await db.insert(drops).values({
+      ownerId: aliceId, name: 'aaa-older', viewMode: 'public', createdAt: new Date('2026-01-01T00:00:00Z'),
+    });
+    await db.insert(drops).values({
+      ownerId: aliceId, name: 'zzz-newer', viewMode: 'public', createdAt: new Date('2026-02-01T00:00:00Z'),
+    });
+    const headers = { host: 'drops.localtest.me', cookie: await cookieFor(aliceId) };
+
+    const byCreated = await appInstance.inject({ method: 'GET', url: '/app', headers });
+    expect(byCreated.statusCode).toBe(200);
+    expect(byCreated.body.indexOf('>zzz-newer<')).toBeLessThan(byCreated.body.indexOf('>aaa-older<'));
+    expect(byCreated.body).toContain('<option value="created" selected>');
+
+    const byName = await appInstance.inject({ method: 'GET', url: '/app?sort=name', headers });
+    expect(byName.statusCode).toBe(200);
+    expect(byName.body.indexOf('>aaa-older<')).toBeLessThan(byName.body.indexOf('>zzz-newer<'));
+    expect(byName.body).toContain('<option value="name" selected>');
+  });
+
+  it('falls back to newest first for an unknown ?sort value', async () => {
+    const res = await appInstance.inject({
+      method: 'GET', url: '/app?sort=bogus',
+      headers: { host: 'drops.localtest.me', cookie: await cookieFor(aliceId) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain('<option value="created" selected>');
+  });
+
   it('?mine=1 hides another owners visible drop but still shows their folder', async () => {
     const [f] = await db.insert(folders).values({ name: 'bobs-folder', createdBy: bobId }).returning();
     await db.insert(drops).values({

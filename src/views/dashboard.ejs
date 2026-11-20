@@ -45,6 +45,13 @@
               <input type="checkbox" name="mine" value="1"<% if (mineOnly) { %> checked<% } %> data-autosubmit>
               Mine only
             </label>
+            <label>
+              Sort
+              <select name="sort" data-autosubmit>
+                <option value="created"<% if (sort === 'created') { %> selected<% } %>>Newest first</option>
+                <option value="name"<% if (sort === 'name') { %> selected<% } %>>A–Z</option>
+              </select>
+            </label>
           </form>
           <details class="new-folder-details"<% if (form && form.kind === 'create-folder') { %> open<% } %>>
             <summary class="btn">＋ New folder</summary>

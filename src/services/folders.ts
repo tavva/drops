@@ -226,13 +226,20 @@ export interface FolderTree {
   rootDrops: DropListItem[];
 }
 
+// Drop order within each folder level. Folders themselves are always listed A–Z.
+export type DropSort = 'created' | 'name';
+
 export async function listFolderTree(
   user: { id: string; email: string },
-  opts: { mineOnly?: boolean } = {},
+  opts: { mineOnly?: boolean; sort?: DropSort } = {},
 ): Promise<FolderTree> {
   const allFolders = await db.select().from(folders).orderBy(asc(folders.name));
+  // Arrives in name order; the stable sort keeps drops created at the same moment A–Z.
   let visibleDrops = await listAllVisibleUnpaged(user);
   if (opts.mineOnly) visibleDrops = visibleDrops.filter((d) => d.ownerId === user.id);
+  if ((opts.sort ?? 'created') === 'created') {
+    visibleDrops.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
 
   const dropsByFolder = new Map<string | null, DropListItem[]>();
   for (const d of visibleDrops) {

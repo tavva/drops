@@ -844,7 +844,7 @@ details.new-folder-details .new-folder-form button:hover { background: var(--bg-
 }
 
 .mine-toggle {
-  display: inline-flex; align-items: center;
+  display: inline-flex; align-items: center; gap: 14px;
   margin: 0; color: var(--ink-3); font-size: 13px;
 }
 .mine-toggle label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }

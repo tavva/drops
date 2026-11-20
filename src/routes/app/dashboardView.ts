@@ -1,7 +1,7 @@
 // ABOUTME: Shared dashboard render path used by the dashboard route and the folder routes on error.
 // ABOUTME: Takes an optional inline error banner and echoes the submitted form values back to the user.
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { listFolderTree, type FolderTree } from '@/services/folders';
+import { listFolderTree, type DropSort, type FolderTree } from '@/services/folders';
 import { formatBytes } from '@/lib/format';
 import { dropOriginFor } from '@/lib/dropHost';
 import { listActiveCliTokens } from '@/services/cliAuth';
@@ -48,9 +48,11 @@ export async function renderDashboard(
   opts: DashboardRenderOptions = {},
 ) {
   const user = req.user!;
-  const mineOnly = (req.query as { mine?: string }).mine === '1';
+  const query = req.query as { mine?: string; sort?: string };
+  const mineOnly = query.mine === '1';
+  const sort: DropSort = query.sort === 'name' ? 'name' : 'created';
   const [tree, activeCliTokens] = await Promise.all([
-    listFolderTree({ id: user.id, email: user.email }, { mineOnly }),
+    listFolderTree({ id: user.id, email: user.email }, { mineOnly, sort }),
     listActiveCliTokens(user.id),
   ]);
   const folderPathList = buildFolderPathList(tree);
@@ -60,6 +62,7 @@ export async function renderDashboard(
     user,
     tree,
     mineOnly,
+    sort,
     folderPathList,
     cliTokens,
     banner: opts.banner ?? null,

@@ -17,12 +17,15 @@ async function insertUser(opts: { email: string; username: string }) {
   return u!;
 }
 
-async function insertDrop(opts: { ownerId: string; name: string; viewMode?: 'authed' | 'public' | 'emails'; folderId?: string | null }) {
+async function insertDrop(opts: {
+  ownerId: string; name: string; viewMode?: 'authed' | 'public' | 'emails'; folderId?: string | null; createdAt?: Date;
+}) {
   const [d] = await db.insert(drops).values({
     ownerId: opts.ownerId,
     name: opts.name,
     viewMode: opts.viewMode ?? 'authed',
     folderId: opts.folderId ?? null,
+    ...(opts.createdAt ? { createdAt: opts.createdAt } : {}),
   }).returning();
   return d!;
 }
@@ -47,11 +50,11 @@ describe('listFolderTree', () => {
     expect(tree.byId.get(work.id)!.childFolderIds).toEqual([a.id, z.id]);
   });
 
-  it('places drops inside their folder, sorted alphabetically', async () => {
+  it('with sort=name, places drops inside their folder, sorted alphabetically', async () => {
     const fa = await createFolder(alice.id, 'work');
     const pub = await insertDrop({ ownerId: alice.id, name: 'zed', viewMode: 'public', folderId: fa.id });
     const early = await insertDrop({ ownerId: alice.id, name: 'alpha', viewMode: 'public', folderId: fa.id });
-    const tree = await listFolderTree(alice);
+    const tree = await listFolderTree(alice, { sort: 'name' });
     expect(tree.byId.get(fa.id)!.drops.map((x) => x.id)).toEqual([early.id, pub.id]);
   });
 
@@ -74,11 +77,38 @@ describe('listFolderTree', () => {
     expect(asBob.byId.get(f.id)!.drops.map((x) => x.id)).toContain(d.id);
   });
 
-  it('returns unfoldered drops as rootDrops, alphabetical', async () => {
+  it('with sort=name, returns unfoldered drops as rootDrops, alphabetical', async () => {
     await insertDrop({ ownerId: alice.id, name: 'zz', viewMode: 'public' });
     await insertDrop({ ownerId: alice.id, name: 'aa', viewMode: 'public' });
-    const tree = await listFolderTree(alice);
+    const tree = await listFolderTree(alice, { sort: 'name' });
     expect(tree.rootDrops.map((x) => x.name)).toEqual(['aa', 'zz']);
+  });
+
+  it('by default lists drops newest created first, at the root and inside folders', async () => {
+    const f = await createFolder(alice.id, 'work');
+    await insertDrop({ ownerId: alice.id, name: 'aa-old', viewMode: 'public', createdAt: new Date('2026-01-01T00:00:00Z') });
+    await insertDrop({ ownerId: alice.id, name: 'zz-new', viewMode: 'public', createdAt: new Date('2026-03-01T00:00:00Z') });
+    await insertDrop({ ownerId: alice.id, name: 'mm-mid', viewMode: 'public', createdAt: new Date('2026-02-01T00:00:00Z') });
+    await insertDrop({ ownerId: alice.id, name: 'in-old', viewMode: 'public', folderId: f.id, createdAt: new Date('2026-01-01T00:00:00Z') });
+    await insertDrop({ ownerId: alice.id, name: 'in-new', viewMode: 'public', folderId: f.id, createdAt: new Date('2026-03-01T00:00:00Z') });
+    const tree = await listFolderTree(alice);
+    expect(tree.rootDrops.map((x) => x.name)).toEqual(['zz-new', 'mm-mid', 'aa-old']);
+    expect(tree.byId.get(f.id)!.drops.map((x) => x.name)).toEqual(['in-new', 'in-old']);
+  });
+
+  it('keeps folders A–Z whatever the drop sort', async () => {
+    const z = await createFolder(alice.id, 'zebra');
+    const a = await createFolder(alice.id, 'aardvark');
+    expect((await listFolderTree(alice)).rootFolderIds).toEqual([a.id, z.id]);
+    expect((await listFolderTree(alice, { sort: 'name' })).rootFolderIds).toEqual([a.id, z.id]);
+  });
+
+  it('breaks created-date ties A–Z', async () => {
+    const same = new Date('2026-01-01T00:00:00Z');
+    await insertDrop({ ownerId: alice.id, name: 'beta', viewMode: 'public', createdAt: same });
+    await insertDrop({ ownerId: alice.id, name: 'alpha', viewMode: 'public', createdAt: same });
+    const tree = await listFolderTree(alice);
+    expect(tree.rootDrops.map((x) => x.name)).toEqual(['alpha', 'beta']);
   });
 
   it('with mineOnly=true, drops restricted to caller; folders still shown', async () => {
