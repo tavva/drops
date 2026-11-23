@@ -1,4 +1,4 @@
-// ABOUTME: Thin wrapper around the S3 SDK targeting either Cloudflare R2 (prod) or MinIO (dev/test).
+// ABOUTME: Thin wrapper around the S3 SDK targeting either Cloudflare R2 (prod) or RustFS (local dev/test).
 // ABOUTME: Exposes put/get/head plus prefix list/delete helpers used by the upload and GC services.
 import {
   S3Client,

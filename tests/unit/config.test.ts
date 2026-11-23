@@ -31,7 +31,7 @@ describe('loadConfig', () => {
     expect(() => loadConfig()).toThrow(/must differ/);
   });
 
-  it('accepts optional R2_ENDPOINT for local MinIO', () => {
+  it('accepts optional R2_ENDPOINT for local RustFS', () => {
     process.env = { ...BASE, R2_ENDPOINT: 'http://localhost:9000' };
     expect(loadConfig().R2_ENDPOINT).toBe('http://localhost:9000');
   });

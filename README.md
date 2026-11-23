@@ -69,12 +69,12 @@ cp .env.example .env
 # fill SESSION_SECRET with `openssl rand -hex 32`
 docker compose up -d
 pnpm db:migrate
-pnpm dev:init-bucket    # one-off: creates the R2 bucket in MinIO
+pnpm dev:init-bucket    # one-off: creates the R2 bucket in RustFS
 pnpm dev:seed           # prints a signed cookie so you can skip OAuth locally
 pnpm dev
 ```
 
-Postgres runs on `55432` locally to dodge conflicts with other Postgres installs. MinIO console: <http://localhost:9001> (`minioadmin` / `minioadmin`).
+Postgres runs on `55432` locally to dodge conflicts with other Postgres installs. RustFS (the local S3 server) console: <http://localhost:9001/rustfs/console/> (`minioadmin` / `minioadmin`, kept from the earlier MinIO setup so existing `.env` files still work).
 
 For browser testing locally, set both origins to subdomains of `localtest.me` (which resolves to `127.0.0.1`):
 
@@ -177,7 +177,7 @@ Routes are wired in `src/index.ts` against `onAppHost` / `onContentHost` plugin 
 | Variable | Purpose |
 |---|---|
 | `DATABASE_URL` | Postgres connection string |
-| `R2_ENDPOINT` | Optional — set to MinIO for local dev; leave unset in prod |
+| `R2_ENDPOINT` | Optional — set to RustFS for local dev; leave unset in prod |
 | `R2_ACCOUNT_ID` | Cloudflare R2 account id (used to derive the prod endpoint) |
 | `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET` | R2 credentials + bucket |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth Web client |

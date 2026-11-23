@@ -26,11 +26,11 @@ pnpm cli:pack:check       # clean pack and verify the published executable sheba
 pnpm cli:test:keychain    # OPT-IN: touches the developer's live macOS Keychain
 pnpm db:generate         # drizzle-kit generate (after schema.ts changes)
 pnpm db:migrate          # apply migrations (also run by Docker CMD in prod)
-pnpm dev:init-bucket     # one-off: create the R2 bucket in MinIO
+pnpm dev:init-bucket     # one-off: create the R2 bucket in RustFS
 pnpm dev:seed            # prints a signed cookie to skip OAuth locally
 ```
 
-Integration tests need `docker compose up -d` (Postgres on `55432`, MinIO on `9000`/`9001`). `tests/helpers/global-setup.ts` rebuilds the test DB once per vitest run; `pool: 'forks'` with `fileParallelism: false` means tests run in a single worker in series — don't try to parallelise them across files. TEST_ENV in `tests/helpers/env.ts` overrides `process.env` for every worker.
+Integration tests need `docker compose up -d` (Postgres on `55432`, RustFS (local S3) on `9000`/`9001`). `tests/helpers/global-setup.ts` rebuilds the test DB once per vitest run; `pool: 'forks'` with `fileParallelism: false` means tests run in a single worker in series — don't try to parallelise them across files. TEST_ENV in `tests/helpers/env.ts` overrides `process.env` for every worker.
 
 `pnpm test:e2e` builds the CLI before starting Playwright. CLI coverage is layered: one smoke test runs the built executable without injected modules through help, init, and deploy validation failures that stop before credential lookup; the full status/deploy/login journey injects test-only file credential and browser-opening adapters so it cannot touch Keychain or launch a real browser. Child processes are bounded and force-reaped on failure. Only run `pnpm cli:test:keychain` when live Keychain mutation is explicitly intended.
 

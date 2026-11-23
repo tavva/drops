@@ -1,4 +1,4 @@
-// ABOUTME: Resets the MinIO test bucket to a clean state before each integration test run.
+// ABOUTME: Resets the local S3 (RustFS) test bucket to a clean state before each integration test run.
 import './env';
 import { S3Client, CreateBucketCommand, DeleteObjectsCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 
